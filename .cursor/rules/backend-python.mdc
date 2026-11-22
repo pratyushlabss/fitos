@@ -1,0 +1,13 @@
+---
+description: FitOS backend Python conventions
+globs: backend/**/*.py
+alwaysApply: false
+---
+
+# Backend Python
+
+- Python 3.11+, Pydantic v2, explicit type annotations on all public functions.
+- Providers and repositories are `Protocol` (or ABC) classes; adapters implement them.
+- `VisionProvider.identify_meal` is async and returns `NormalizedFoodPrediction`.
+- Claude vision uses tool-calling / structured tool input, not free-form JSON in assistant text.
+- Supabase implementations live in `backend/repositories/`; do not query Postgres from `api/`.

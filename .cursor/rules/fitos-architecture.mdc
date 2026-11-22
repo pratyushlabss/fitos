@@ -1,0 +1,13 @@
+---
+description: FitOS architecture — provider-blind domain, RLS, provenance
+alwaysApply: true
+---
+
+# FitOS architecture
+
+- Own all business logic in `backend/domain`. Vendors only in `backend/adapters`.
+- Never import Anthropic, Open Food Facts, USDA, HealthKit, or Health Connect from `apps/web` or `backend/domain`.
+- Every food/prediction record must include `source`, `source_version`, and `confidence`.
+- FastAPI routes: Pydantic validation + domain service call. No SQL or vendor calls in routes.
+- No Strava. GPS is native geolocation, health stores, or GPX/FIT import.
+- Web UI is a 5-tab mobile shell: Home, Workout, Nutrition, Activity, Profile (390–430px base).

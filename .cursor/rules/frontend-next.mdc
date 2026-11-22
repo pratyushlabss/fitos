@@ -1,0 +1,13 @@
+---
+description: FitOS Next.js UI conventions
+globs: apps/web/**/*.{ts,tsx}
+alwaysApply: false
+---
+
+# Frontend Next.js
+
+- App Router, TypeScript, Tailwind. Never use `any`.
+- Mobile-first 390–430px inside the 5-tab bottom nav.
+- Do not import vendor SDKs; call FitOS backend/domain APIs only.
+- Finished workout/activity: 9:16 canvas card + `navigator.share()` for Stories.
+- Lucide icons for tab chrome. Keep screens thumb-reachable; primary CTA above the tab bar.

@@ -1,0 +1,57 @@
+# FitOS — Project Constitution & Cursor Directives
+
+You are building **FitOS**, a privacy-first, unified fitness operating system that consolidates workout logging, AI-driven nutrition estimation, GPS activity tracking, and social accountability.
+
+---
+
+## 1. Prime Governing Principles
+1. **Interface-Driven & Provider-Blind**:
+   - FitOS owns all core business logic and domain data models.
+   - Every external service (Claude Vision, Open Food Facts, USDA, Apple Health, Health Connect) MUST sit behind an abstract provider/repository interface.
+   - The UI (`apps/web`) and Domain services NEVER import third-party vendor SDKs directly.
+2. **Lean & ₹0-First Infrastructure**:
+   - Zero Strava API dependency. Outdoor runs/rides rely on client-side native GPS, Apple Health, Android Health Connect, and GPX/FIT file uploads.
+   - Backend runs on FastAPI with Supabase (PostgreSQL + RLS) and Cloudflare Pages/Workers.
+3. **Data Provenance**:
+   - Every food and prediction record MUST carry `source`, `source_version`, and `confidence` fields.
+
+---
+
+## 2. Directory & Monorepo Structure
+Maintain strict boundaries across the monorepo:
+```text
+fitos/
+├── .cursorrules
+├── ROADMAP.md
+├── apps/
+│   ├── web/               # Next.js App Router (PWA, Tailwind CSS, Lucide Icons)
+│   └── ios/               # Native SwiftUI (deferred to Phase 10)
+├── backend/
+│   ├── api/               # Thin FastAPI route handlers (no business logic)
+│   ├── domain/            # Core services: WorkoutService, NutritionService, ActivityService, ScoreService
+│   ├── repositories/      # Database interfaces & Supabase implementations
+│   ├── providers/         # Abstract provider interfaces (VisionProvider, NutritionProvider, etc.)
+│   └── adapters/          # Concrete adapters: ClaudeVisionAdapter, OpenFoodFactsAdapter, etc.
+├── packages/
+│   └── types/             # Shared TypeScript schemas / Pydantic mirror
+└── database/
+    └── migrations/        # PostgreSQL DDL with Row Level Security (RLS)
+```
+
+---
+
+## 3. Technology Stack & Coding Standards
+
+* **Frontend**: Next.js 14+ (App Router), React, TypeScript, Tailwind CSS, `@vercel/og` or HTML5 Canvas for shareable cards.
+* **Backend**: Python 3.11+, FastAPI, Pydantic v2, `asyncpg` / Supabase Python client.
+* **Database**: PostgreSQL on Supabase. Every table MUST have Row Level Security (RLS) enabled and scoped by `auth.uid() = user_id`.
+* **Vision & AI**: Anthropic Claude API (`claude-3-5-sonnet`) wrapped inside `ClaudeVisionAdapter` with strict tool-calling/JSON outputs.
+
+---
+
+## 4. Coding Conventions
+
+* **No Fat Controllers**: FastAPI endpoints must only validate schemas via Pydantic and delegate execution directly to domain services.
+* **Explicit Typing**: Never use `any` in TypeScript or unannotated arguments in Python.
+* **Mobile First**: All UI components must be optimized for mobile screens (390px-430px base width) inside a 5-tab navigation shell (Home, Workout, Nutrition, Activity/Social, Profile).
+* **Share Card Pipeline**: When a workout or activity finishes, provide a 1-tap client-side 9:16 Canvas generation flow that exports via `navigator.share()` for native Instagram Stories sharing.

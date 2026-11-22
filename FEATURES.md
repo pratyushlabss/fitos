@@ -1,0 +1,137 @@
+# FitOS Features
+
+Status as of 2026-11-22, before any migration work.
+
+- **Working:** does what the screen implies, end to end.
+- **Partial:** the UI exists but shows demo data or keeps changes only in memory, or the backend exists but nothing calls it.
+- **Broken:** a button or link that does nothing, errors, or leads to a missing page.
+
+No screen is connected to the backend or to Supabase, and there is no sign-in. Everything resets on reload.
+
+## App shell
+
+| Feature | Status | Files | Notes |
+|---|---|---|---|
+| Bottom navigation, 7 tabs | Working | `components/shell/BottomNav.tsx`, `components/shell/AppShell.tsx` | Tight on iPhone width |
+| Web app manifest | Broken | `app/manifest.ts`, `public/manifest.json`, `app/layout.tsx` | Two manifests. One points to missing PNG icons, the other has only an SVG icon. |
+| Sign in / sign up | Not built | none | No auth anywhere in the web app |
+
+## Home (`app/page.tsx`)
+
+| Feature | Status | Files | Notes |
+|---|---|---|---|
+| Fitness score, readiness, sleep, load | Partial | `app/page.tsx` | Hard-coded numbers |
+| Protein and steps cards | Partial | `app/page.tsx`, `components/ui/StatCard.tsx` | Hard-coded |
+| "View recovery", "Open workout", "Open nutrition" links | Working | `app/page.tsx`, `components/ui/ActionCard.tsx` | |
+| "Workout posted" card, Share button | Broken | `app/page.tsx`, `components/ui/Button.tsx` | Button has no handler |
+
+## Workout (`app/workout/page.tsx`)
+
+| Feature | Status | Files | Notes |
+|---|---|---|---|
+| Today's workout and target set | Partial | `app/workout/page.tsx` | Hard-coded |
+| Adaptive recommendations list | Partial | `app/workout/page.tsx`, `lib/demoData.ts`; backend `domain/services/recommendation_service.py` | Demo data. The backend endpoint also returns a fixed list. |
+| Edit recommendation | Broken | `app/workout/page.tsx` | No handler |
+| Start session, Add exercise, Replace, Skip | Broken | `app/workout/page.tsx` | No handlers |
+| Start workout, log sets, finish, total volume (API) | Partial | `backend/api/routes/workouts.py`, `backend/domain/services/workout_service.py`, `backend/repositories/supabase_workout.py` | Works against Supabase, but no screen calls it |
+| Progression suggestion (API) | Partial | `backend/api/routes/recommendations.py`, `backend/domain/services/progression_service.py` | Not called by the UI |
+
+## Nutrition (`app/nutrition/page.tsx`)
+
+| Feature | Status | Files | Notes |
+|---|---|---|---|
+| Macro balance cards | Partial | `app/nutrition/page.tsx` | Hard-coded |
+| Meals list | Partial | `app/nutrition/page.tsx`, `lib/demoData.ts` | Demo data |
+| Add food, Scan food, Barcode, Voice, Search, Recipe buttons | Broken | `app/nutrition/page.tsx` | No handlers |
+| Meal photo recognition (API) | Broken | `backend/api/routes/nutrition.py`, `backend/adapters/claude/vision.py`, `backend/api/settings.py` | Default model `claude-3-5-sonnet-20241022` is retired |
+| Food-scan image upload and EXIF strip (API) | Partial | `backend/api/routes/food_scan.py`, `backend/domain/services/image_service.py` | Queues in memory only, nothing processes the job |
+| Barcode lookup via Open Food Facts (API) | Partial | `backend/api/routes/nutrition.py`, `backend/api/routes/barcode.py`, `backend/adapters/open_food_facts/client.py` | Not called by the UI |
+| Food search via USDA (API) | Partial | `backend/api/routes/nutrition.py`, `backend/adapters/usda/client.py` | Needs a USDA key. Not called by the UI. |
+| Save predictions and user corrections | Partial | `backend/repositories/supabase_food.py` | Repository exists, no route saves corrections |
+
+## Activity (`app/activity/page.tsx`)
+
+| Feature | Status | Files | Notes |
+|---|---|---|---|
+| Run, Ride, Walk buttons | Broken | `app/activity/page.tsx` | No handlers, no GPS code |
+| Route preview | Partial | `app/activity/page.tsx` | Static gradient, no map |
+| Activity Share button | Broken | `app/activity/page.tsx` | No handler |
+| Weekly stats and recent activity | Partial | `app/activity/page.tsx`, `lib/demoData.ts` | Demo data |
+| Record and list activities (API) | Partial | `backend/api/routes/activities.py`, `backend/domain/services/activity_service.py`, `backend/repositories/supabase_activity.py` | Accepts a polyline. Not called by the UI. |
+
+## Social (`app/social/page.tsx`)
+
+| Feature | Status | Files | Notes |
+|---|---|---|---|
+| Find athletes search | Partial | `app/social/page.tsx` | Filters two hard-coded athletes |
+| Follow / Following toggle | Partial | `app/social/page.tsx` | Memory only |
+| Like toggle and count | Partial | `app/social/page.tsx` | Memory only |
+| Comment button | Broken | `app/social/page.tsx` | No handler |
+| Post Share button | Broken | `app/social/page.tsx` | No handler |
+| Bookmark (save workout) | Broken | `app/social/page.tsx` | No handler |
+| Notifications bell | Broken | `app/social/page.tsx` | No handler |
+| "See all" discover link | Broken | `app/social/page.tsx` | Links to `#discover`, which does not exist |
+| "View full workout" post link | Broken | `app/social/page.tsx` | Goes to `/social/post/[id]`, which does not exist (404) |
+| Feed, discover, search, follow, like, comment (API) | Partial | `backend/api/routes/social.py`, `backend/domain/services/social_service.py`, `backend/repositories/supabase_social.py` | Not called by the UI. Feed ignores post visibility. |
+
+## Athlete profile (`app/social/profile/[userId]/page.tsx`)
+
+| Feature | Status | Files | Notes |
+|---|---|---|---|
+| Profile header, counts, stats, recent workouts | Partial | `app/social/profile/[userId]/page.tsx` | Hard-coded. Any unknown ID shows "Jordan Patel". |
+| Follow and Message buttons | Broken | `app/social/profile/[userId]/page.tsx` | No handlers |
+| Overview / Workouts / Activity / Compare tabs | Broken | `app/social/profile/[userId]/page.tsx` | Plain text, not clickable |
+
+## Messages (`app/chat/page.tsx`)
+
+| Feature | Status | Files | Notes |
+|---|---|---|---|
+| Contact list and switching | Partial | `app/chat/page.tsx` | Hard-coded contacts |
+| Add contact by name | Partial | `app/chat/page.tsx` | Creates a fake local contact |
+| Send message | Partial | `app/chat/page.tsx` | Memory only. Every contact shares one message list. |
+| Conversations and messages (API) | Partial | `backend/api/routes/messaging.py`, `backend/repositories/supabase_messaging.py` | Not called by the UI |
+
+## Recovery (`app/recovery/page.tsx`)
+
+| Feature | Status | Files | Notes |
+|---|---|---|---|
+| Manual check-in sliders and readiness calculation | Working | `app/recovery/page.tsx` | Calculated in the browser |
+| Seven-day readiness chart | Partial | `app/recovery/page.tsx` | Six past days are hard-coded |
+| Recovery coach text | Working | `app/recovery/page.tsx` | Two fixed messages by score |
+| Save check-in | Broken | `app/recovery/page.tsx` | No handler |
+| Recovery pipeline, feature engine, coach (backend) | Partial | `backend/domain/recovery/`, `backend/domain/services/recovery_pipeline.py`, `backend/repositories/supabase_recovery.py` | No API route exposes it |
+
+## Profile (`app/profile/page.tsx`)
+
+| Feature | Status | Files | Notes |
+|---|---|---|---|
+| Name, handle, follower counts | Partial | `app/profile/page.tsx` | Hard-coded "Alex Morgan" |
+| Change profile photo | Partial | `app/profile/page.tsx` | Preview only, not uploaded or saved |
+| Share profile and Copy link | Partial | `app/profile/page.tsx` | Work, but share a placeholder `fitos.app` URL |
+| QR button | Broken | `app/profile/page.tsx` | No handler |
+| Open messages | Working | `app/profile/page.tsx` | Full page reload via `window.location` |
+| Goals, privacy and sync display | Partial | `app/profile/page.tsx` | Hard-coded text, including "Apple Health: connected" |
+| Goals, Integrations, Body data, Export buttons | Broken | `app/profile/page.tsx` | No handlers |
+
+## Helpers not used by any screen
+
+| Feature | Status | Files |
+|---|---|---|
+| 9:16 share card canvas and `navigator.share` | Partial | `lib/shareCard.ts` |
+| Backend API client | Partial | `lib/api.ts` |
+| Dashboard summary (API) | Partial | `backend/api/routes/dashboard.py`, `backend/domain/services/dashboard_service.py` (returns fixed numbers) |
+
+## In the spec but not built
+
+These come from `AGENTS.md`. Only tables or models exist for them, or nothing at all.
+
+- Exercise catalog and custom exercises (table `exercises` only)
+- Routine builder (tables `routines`, `routine_exercises` only)
+- PR detection for 1RM, max weight and max reps (table `personal_records` only)
+- Muscle recovery map
+- Live GPS tracking and route map
+- GPX and FIT import (enum values only)
+- Apple Health and Health Connect sync
+- Leaderboards for distance, volume and streaks
+- Body weight, measurements and progress photos (table `body_measurements` only)
+- Storage buckets for any images
