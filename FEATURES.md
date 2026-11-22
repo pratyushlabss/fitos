@@ -158,3 +158,12 @@ These rows supersede the tables above until the final rewrite after Phase 5. "Wo
 | Share card for workouts and activities | Working | `components/ui/ShareCardButton.tsx`, `lib/shareCard.ts` |
 | Recovery check-in, score, seven-day chart, coach | Working | `app/recovery/page.tsx`, `lib/logic/recovery.ts` |
 | `lib/demoData.ts` | Removed | Nothing uses it |
+
+## Status changes in Phase 4
+
+| Feature | Status | Files |
+|---|---|---|
+| Meal photo scan with editable result and saved corrections | Working once deployed | `supabase/functions/food-scan`, `components/nutrition/FoodSheets.tsx` |
+| Food search: USDA and Open Food Facts | Working once deployed | `supabase/functions/food-search` |
+| Barcode lookup with cache | Working once deployed | `supabase/functions/barcode`, `components/nutrition/BarcodeScanner.tsx` |
+| RLS on every table, private storage, Realtime | Working once applied | `database/migrations/007_rls_hardening.sql`, `008_app_features.sql` |

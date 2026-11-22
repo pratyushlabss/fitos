@@ -145,13 +145,7 @@ export async function unfollowUser(userId: string): Promise<void> {
 }
 
 export async function respondToFollowRequest(followerId: string, accept: boolean): Promise<void> {
-  const me = await currentUserId();
-  const query = supabase.from("follows");
-  if (accept) {
-    unwrap(await query.update({ status: "accepted", updated_at: new Date().toISOString() }).eq("follower_id", followerId).eq("following_id", me));
-  } else {
-    unwrap(await query.delete().eq("follower_id", followerId).eq("following_id", me));
-  }
+  unwrap(await supabase.rpc("respond_follow_request", { p_follower: followerId, p_accept: accept }));
 }
 
 export async function blockUser(userId: string): Promise<void> {

@@ -11,16 +11,26 @@ FITOS domain remains vendor-neutral through adapters and repositories.
 
 ## Database
 
-Apply migrations in order:
+Apply migrations in order. `supabase/migrations` is a symlink to this folder, so
+`npx supabase db push` applies them for you (see `DEPLOY.md`):
 
 1. `database/migrations/001_phase0_init.sql`
 2. `database/migrations/002_phase1_fitos_core.sql`
 3. `database/migrations/003_data_engine.sql`
 4. `database/migrations/004_social_identity.sql`
+5. `database/migrations/005_messaging.sql`
+6. `database/migrations/006_recovery_intelligence.sql`
+7. `database/migrations/007_rls_hardening.sql`: RLS on the 002 tables, fixed social and messaging policies, profile trigger, `search_profiles`, storage buckets and policies, Realtime publication, no table access for `anon`
+8. `database/migrations/008_app_features.sql`: profile goals, progress photos, recovery check-ins, food-scan limits, saved posts, feed, leaderboard, notification and messaging RPCs, exercise catalog
 
-The service role is used only by backend adapters. Client access must use the
-Supabase Auth JWT and database policies must still enforce ownership. Configure
-explicit grants in addition to RLS before production exposure.
+The web app uses the anon key and the user's JWT, so RLS is the security boundary.
+The service role is used only inside Edge Functions, for the food-scan rate limit
+and the shared barcode cache. Security helpers live in the `private` schema, which
+PostgREST does not expose.
+
+`database/tests/run.sh` applies every migration to a throwaway local Postgres
+(port 55432) with stand-ins for Supabase's `auth` and `storage` schemas, then runs
+68 RLS checks as four test users.
 
 ## Auth
 

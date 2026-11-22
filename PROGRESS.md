@@ -73,3 +73,48 @@
 
 **Build**
 - `npm run build:web` passes. All 21 routes are static.
+
+## Phase 4 — Security, storage and Edge Functions (2026-11-22)
+
+**Added**
+- `database/migrations/007_rls_hardening.sql`:
+  - Enables RLS on all 12 tables from 002. Reference tables are read-only to signed-in users. User tables allow CRUD on your own rows only, with child rows checked through their parent.
+  - Rewrites the visibility policies through one helper. A post, workout or activity is visible to its owner. Otherwise it is visible if public on a public profile, or public or followers-only while you are an accepted follower. Nothing is ever visible across a block.
+  - Comments, reactions and saves now require a post you can see.
+  - Follows can no longer be self-accepted on private profiles.
+  - Fixes two messaging bugs. One unqualified column let any member of any conversation read every message. One self-referencing policy caused an infinite-recursion error.
+  - Adds the profile-creation trigger on `auth.users` with a backfill, and the `search_profiles(q)` RPC with an escaped ILIKE parameter, limit 20 and block exclusion.
+  - Adds the `avatars`, `post-media` and `progress-photos` buckets with per-folder policies, the Realtime publication for messages, posts, comments and reactions, and revokes all table access from `anon`.
+- `database/migrations/008_app_features.sql`:
+  - New columns: profile goals and targets, `workouts.routine_id`, `personal_records.is_baseline`, provenance on `meal_items`.
+  - New tables: `progress_photos`, `recovery_checkins`, `food_scan_usage`, `post_saves`.
+  - RPCs: feed, profile card, weekly leaderboard, streak, notifications, follow and respond, conversations and unread counts, food-scan rate limit.
+  - Indexes, and a 58-exercise global catalog.
+- `database/tests/`: a stand-in for Supabase's `auth` and `storage` plus 68 RLS checks, run as four users. All pass on local Postgres 15.
+- `supabase/`: created with `supabase init`. `supabase/migrations` is a symlink to `database/migrations`. A dry run and a real `db push` against a throwaway local database both applied all 8 migrations.
+- `supabase/functions/food-scan`:
+  - Verifies the JWT and enforces 20 scans per user per day, with a refund on failure.
+  - Calls Claude through the official SDK, using the same prompt and fields as the Python adapter, and saves to `food_predictions` as the user.
+  - Uses `claude-opus-5-5`, which you can override with the `ANTHROPIC_MODEL` secret. The retired 3.5 Sonnet ID is gone.
+  - Forced tool calls are rejected by current models, so the output schema is enforced with structured outputs.
+  - The server-side refusal fallback (`fallbacks: "default"`) is on.
+- `supabase/functions/food-search`: USDA plus Open Food Facts. Open Food Facts moved search to `search.openfoodfacts.org`, and the legacy endpoint returned 503, so the legacy one is now a fallback. Both sources were smoke-tested live.
+- `supabase/functions/barcode`: Open Food Facts, then USDA, cached into `products` and `product_nutrition`.
+- `supabase/functions/_shared`: CORS for `fitos.pages.dev`, its preview subdomains and localhost, plus JWT auth and the nutrition adapters.
+- Root dev dependency `supabase`, so `npx supabase` works.
+
+**Changed**
+- `docs/SUPABASE_SETUP.md`: migrations 005 to 008 and the test harness.
+- `apps/web/lib/data/social.ts`: accepting a follow request goes through the RPC, because clients have no UPDATE on follows.
+- `supabase/config.toml`: local auth URLs.
+
+**Verified**
+- `deno check` passes for all three functions.
+- `npm run build:web` passes.
+- Nothing was run against your live database.
+
+**Decisions**
+- Custom exercises are user-writable, scoped to the owner, because AGENTS.md requires them. Every other reference table is read-only.
+- Leaderboards and other people's streaks count only workouts shared beyond "only me". Stats are hidden on private profiles you do not follow.
+- Messaging a private profile needs a follow in either direction.
+- Images are stored at `{user_id}/{uuid}.webp`, or `.jpg` where iOS cannot encode WebP. Meal-scan photos are not stored at all.

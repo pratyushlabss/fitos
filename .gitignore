@@ -34,3 +34,4 @@ supabase/.branches/
 coverage/
 htmlcov/
 .coverage
+.claude/settings.local.json
