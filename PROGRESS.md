@@ -45,3 +45,31 @@
 **Build**
 - `npm run build:web` passes. All 11 routes are static and the output is `apps/web/out`.
 - `npx wrangler pages deploy --help` runs. The actual deploy needs `wrangler login`, which only you can do.
+
+## Phase 3 — Supabase data layer and auth (2026-11-22)
+
+**Added**
+- `apps/web/lib/supabase.ts`: the only Supabase client. It reads `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` and persists and refreshes the session.
+- `apps/web/lib/data/`: typed modules for auth, profile, exercises and routines, workouts, activities, nutrition, body, recovery, social, messaging and storage. Query logic is ported from `backend/repositories/*`.
+- `apps/web/lib/logic/`: TypeScript ports of the recovery engine and coach, progression, and dashboard maths. Also workout volume and PR detection, GPS maths and GPX parsing, units and formatting.
+- `apps/web/lib/image.ts`: client-side compression to at most 1280 px and about 300 KB. It uses WebP, or JPEG where iOS cannot encode WebP. Re-encoding strips EXIF.
+- `@fitos/types`: Profile, Meal, Routine, FeedPost, Conversation and other new types.
+- Auth: `components/auth/AuthProvider.tsx` and `AuthGate.tsx`, plus `app/login` (6-digit email code, no magic link) and `app/onboarding`.
+- React Query provider and toast in `components/providers/Providers.tsx`.
+- UI states: skeleton, empty, error with retry, `QueryView`, bottom sheet, fields, avatar, macro ring, pull-to-refresh, share-card button.
+- New pages: workout session, detail, history, exercise progress and routine, plus activity detail.
+
+**Changed**
+- Rebuilt by design, because they were demo screens: `app/page.tsx`, `app/workout/page.tsx`, `app/nutrition/page.tsx`, `app/activity/page.tsx`, `app/recovery/page.tsx`.
+- Targeted edits: `app/layout.tsx` now wraps the app in Providers. `components/shell/AppShell.tsx` adds AuthGate. `components/shell/BottomNav.tsx` hides when signed out. `components/ui/Button.tsx` gains disabled styling. `app/profile/page.tsx` gains sign-out.
+- Deleted `apps/web/lib/demoData.ts`.
+
+**Decisions**
+- Routines and suggestions start a workout with planned sets that are not yet ticked. Finishing removes unticked sets.
+- The first time you log an exercise, its bests are stored as a baseline, not announced as a PR. A new `is_baseline` column marks these rows.
+- Recovery uses your calorie and protein targets instead of the fixed 2200 kcal and 160 g in the Python engine. Training load comes from today's volume divided by 50, as in the Python feature engine.
+- Activity calories are an estimate based on distance and type.
+- The in-memory job queue is gone. Edge functions answer synchronously.
+
+**Build**
+- `npm run build:web` passes. All 21 routes are static.

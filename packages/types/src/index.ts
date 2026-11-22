@@ -103,3 +103,249 @@ export type Activity = {
   visibility: Visibility;
   title: string | null;
 };
+
+export type UnitSystem = "metric" | "imperial";
+export type Goal = "build_muscle" | "lose_fat" | "strength" | "endurance" | "general";
+
+export type Profile = {
+  id: string;
+  username: string | null;
+  display_name: string;
+  avatar_url: string | null;
+  bio: string | null;
+  is_private: boolean;
+  unit_system: UnitSystem;
+  default_visibility: Visibility;
+  goal: Goal | null;
+  height_cm: number | null;
+  calorie_target: number;
+  protein_target_g: number;
+  carbs_target_g: number;
+  fat_target_g: number;
+  timezone: string;
+  onboarded_at: string | null;
+};
+
+export type ProfileCard = {
+  id: string;
+  username: string | null;
+  display_name: string;
+  avatar_url: string | null;
+  bio: string | null;
+  is_private: boolean;
+  followers: number;
+  following: number;
+  workouts: number;
+  follow_status: "pending" | "accepted" | null;
+  follows_me: boolean;
+  blocked_by_me: boolean;
+  can_view: boolean;
+  streak: number | null;
+  volume_30d: number | null;
+  workouts_30d: number | null;
+  prs_30d: number | null;
+};
+
+export type ProfileSearchResult = {
+  id: string;
+  username: string | null;
+  display_name: string;
+  avatar_url: string | null;
+  is_private: boolean;
+  follow_status: "pending" | "accepted" | null;
+};
+
+export type Exercise = {
+  id: string;
+  user_id: string | null;
+  name: string;
+  muscle_group: string | null;
+  equipment: string | null;
+  is_global: boolean;
+};
+
+export type RoutineExercise = {
+  id: string;
+  routine_id: string;
+  exercise_id: string | null;
+  exercise_name: string;
+  order_index: number;
+  sets: number;
+  reps: number;
+  target_weight_kg: number | null;
+};
+
+export type Routine = {
+  id: string;
+  user_id: string;
+  name: string;
+  description: string | null;
+  created_at: string;
+  routine_exercises: RoutineExercise[];
+};
+
+export type WorkoutWithDetail = Workout & {
+  routine_id: string | null;
+};
+
+export type PersonalRecordType = "max_weight" | "max_reps" | "estimated_1rm" | "volume";
+
+export type PersonalRecord = {
+  id: string;
+  exercise_name: string;
+  record_type: PersonalRecordType;
+  value: number;
+  workout_id: string | null;
+  achieved_at: string;
+};
+
+export type MealType = "breakfast" | "lunch" | "dinner" | "snack" | "other";
+
+export type MealItem = {
+  id: string;
+  meal_id: string;
+  name: string;
+  amount_grams: number;
+  calories: number;
+  protein_g: number;
+  carbs_g: number;
+  fat_g: number;
+  source: string;
+  source_version: string | null;
+  confidence: number;
+  prediction_id: string | null;
+};
+
+export type Meal = {
+  id: string;
+  meal_type: MealType;
+  meal_date: string;
+  meal_items: MealItem[];
+};
+
+export type NewMealItem = Omit<MealItem, "id" | "meal_id">;
+
+export type FoodScanResult = {
+  prediction_id: string;
+  prediction: NormalizedFoodPrediction;
+  scans_remaining: number;
+};
+
+export type BodyMeasurement = {
+  id: string;
+  measured_at: string;
+  weight_kg: number | null;
+  body_fat_pct: number | null;
+  waist_cm: number | null;
+  chest_cm: number | null;
+  arms_cm: number | null;
+  legs_cm: number | null;
+  notes: string | null;
+};
+
+export type ProgressPhoto = {
+  id: string;
+  storage_path: string;
+  taken_at: string;
+  notes: string | null;
+};
+
+export type RecoveryCheckIn = {
+  day: string;
+  sleep_hours: number | null;
+  sleep_quality: number | null;
+  stress: number | null;
+  soreness: number | null;
+  resting_hr: number | null;
+  notes: string | null;
+};
+
+export type RecoveryDay = {
+  day: string;
+  recovery_score: number | null;
+  readiness_score: number | null;
+  confidence: number;
+  data_completeness: number;
+  missing_inputs: string[];
+  components: Record<string, number | null>;
+};
+
+export type PostType = "workout" | "activity" | "achievement" | "challenge" | "text" | "photo";
+
+export type FeedPost = {
+  id: string;
+  user_id: string;
+  username: string | null;
+  display_name: string;
+  avatar_url: string | null;
+  post_type: PostType;
+  body: string | null;
+  media_path: string | null;
+  workout_id: string | null;
+  workout_title: string | null;
+  workout_volume_kg: number | null;
+  workout_started_at: string | null;
+  workout_completed_at: string | null;
+  workout_exercise_count: number | null;
+  activity_id: string | null;
+  activity_sport: ActivitySport | null;
+  activity_distance_m: number | null;
+  activity_duration_s: number | null;
+  visibility: Visibility;
+  created_at: string;
+  like_count: number;
+  comment_count: number;
+  liked_by_me: boolean;
+  saved_by_me: boolean;
+};
+
+export type PostComment = {
+  id: string;
+  post_id: string;
+  user_id: string;
+  body: string;
+  created_at: string;
+  profiles: { username: string | null; display_name: string; avatar_url: string | null } | null;
+};
+
+export type LeaderboardRow = {
+  user_id: string;
+  username: string | null;
+  display_name: string;
+  avatar_url: string | null;
+  volume_kg: number;
+  workouts: number;
+  streak: number;
+  is_me: boolean;
+};
+
+export type AppNotification = {
+  kind: "like" | "comment" | "follow" | "follow_request";
+  actor_id: string;
+  username: string | null;
+  display_name: string;
+  avatar_url: string | null;
+  post_id: string | null;
+  body: string | null;
+  created_at: string;
+};
+
+export type ConversationSummary = {
+  conversation_id: string;
+  other_user_id: string;
+  username: string | null;
+  display_name: string;
+  avatar_url: string | null;
+  last_body: string | null;
+  last_at: string | null;
+  last_sender_id: string | null;
+  unread: number;
+};
+
+export type ChatMessage = {
+  id: string;
+  conversation_id: string;
+  sender_id: string;
+  body: string;
+  created_at: string;
+};

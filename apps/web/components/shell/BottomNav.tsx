@@ -4,6 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Activity, Dumbbell, Home, Moon, Salad, User, Users } from "lucide-react";
 
+import { useAuth } from "@/components/auth/AuthProvider";
+
 const tabs = [
   { href: "/", label: "Home", icon: Home },
   { href: "/workout", label: "Workout", icon: Dumbbell },
@@ -14,8 +16,13 @@ const tabs = [
   { href: "/profile", label: "Profile", icon: User },
 ] as const;
 
+const HIDDEN_ON = ["/login", "/onboarding"];
+
 export function BottomNav() {
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "/";
+  const { status } = useAuth();
+
+  if (status !== "signed_in" || HIDDEN_ON.some((route) => pathname.startsWith(route))) return null;
 
   return (
     <nav className="fixed bottom-0 left-1/2 z-20 w-full max-w-phone -translate-x-1/2 border-t border-white/10 bg-panel/95 pb-[env(safe-area-inset-bottom)] backdrop-blur">

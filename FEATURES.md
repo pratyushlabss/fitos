@@ -135,3 +135,26 @@ These come from `AGENTS.md`. Only tables or models exist for them, or nothing at
 - Leaderboards for distance, volume and streaks
 - Body weight, measurements and progress photos (table `body_measurements` only)
 - Storage buckets for any images
+
+## Status changes in Phase 3 (data layer and auth)
+
+These rows supersede the tables above until the final rewrite after Phase 5. "Working" here assumes migrations 007 and 008 are applied (Phase 4).
+
+| Feature | Status | Files |
+|---|---|---|
+| Email code sign-in, verify, onboarding, sign-out | Working | `app/login/page.tsx`, `app/onboarding/page.tsx`, `components/auth/*`, `lib/data/auth.ts`, `app/profile/page.tsx` |
+| Home dashboard: recovery, streak, calories, macros, last workout, friend activity | Working | `app/page.tsx` |
+| Workout suggestions with Edit, Replace and Skip | Working | `app/workout/page.tsx`, `lib/logic/progression.ts` |
+| Start session, empty workout, start from routine | Working | `app/workout/page.tsx`, `lib/data/workouts.ts` |
+| Live logger: sets, weight, reps, RPE, warm-ups, rest timer, finish, discard | Working | `app/workout/session/page.tsx` |
+| Automatic PR detection on finish | Working | `lib/logic/workout.ts`, `lib/data/workouts.ts` |
+| Workout history and detail ("View full workout") | Working | `app/workout/history/page.tsx`, `app/workout/detail/page.tsx` |
+| Per-exercise progress chart | Working | `app/workout/exercise/page.tsx` |
+| Routines: create, edit, reorder, delete, start | Working | `app/workout/routine/page.tsx`, `lib/data/exercises.ts` |
+| Nutrition daily log by meal, macro rings, day navigation | Working | `app/nutrition/page.tsx` |
+| Add food, Search, Barcode, Voice, Recent, Scan food | Working | `components/nutrition/*` (Search, Barcode and Scan need the Phase 4 edge functions) |
+| Live GPS run, ride, walk with pause, resume, finish | Working | `app/activity/page.tsx`, `components/activity/useGpsTracker.ts` |
+| GPX import and activity detail with route | Working | `app/activity/page.tsx`, `app/activity/detail/page.tsx` |
+| Share card for workouts and activities | Working | `components/ui/ShareCardButton.tsx`, `lib/shareCard.ts` |
+| Recovery check-in, score, seven-day chart, coach | Working | `app/recovery/page.tsx`, `lib/logic/recovery.ts` |
+| `lib/demoData.ts` | Removed | Nothing uses it |

@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 
+import { Providers } from "@/components/providers/Providers";
 import { AppShell } from "@/components/shell/AppShell";
 
 import "./globals.css";
@@ -30,7 +31,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <body className={`${inter.variable} antialiased`}>
-        <AppShell>{children}</AppShell>
+        <Providers>
+          <AppShell>{children}</AppShell>
+        </Providers>
       </body>
     </html>
   );

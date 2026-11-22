@@ -1,12 +1,13 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Copy, MessageCircle, QrCode, Share2, Upload } from "lucide-react";
+import { Copy, LogOut, MessageCircle, QrCode, Share2, Upload } from "lucide-react";
 import Image from "next/image";
 
 import { ScreenHeader } from "@/components/shell/ScreenHeader";
 import { SectionCard } from "@/components/ui/SectionCard";
 import { Button } from "@/components/ui/Button";
+import { signOut } from "@/lib/data/auth";
 
 export default function ProfilePage() {
   const [avatar, setAvatar] = useState<string | null>(null);
@@ -83,6 +84,7 @@ export default function ProfilePage() {
           <Button variant="secondary" className="w-full">Body data</Button>
           <Button variant="ghost" className="w-full">Export</Button>
         </div>
+        <Button variant="ghost" className="w-full gap-2 text-rose-300" onClick={() => void signOut()}><LogOut size={15} />Sign out</Button>
       </div>
     </>
   );
