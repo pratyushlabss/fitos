@@ -74,13 +74,13 @@ No screen is connected to the backend or to Supabase, and there is no sign-in. E
 | "View full workout" post link | Broken | `app/social/page.tsx` | Goes to `/social/post/[id]`, which does not exist (404) |
 | Feed, discover, search, follow, like, comment (API) | Partial | `backend/api/routes/social.py`, `backend/domain/services/social_service.py`, `backend/repositories/supabase_social.py` | Not called by the UI. Feed ignores post visibility. |
 
-## Athlete profile (`app/social/profile/[userId]/page.tsx`)
+## Athlete profile (`app/social/profile/page.tsx`, opened as `/social/profile?id=`)
 
 | Feature | Status | Files | Notes |
 |---|---|---|---|
-| Profile header, counts, stats, recent workouts | Partial | `app/social/profile/[userId]/page.tsx` | Hard-coded. Any unknown ID shows "Jordan Patel". |
-| Follow and Message buttons | Broken | `app/social/profile/[userId]/page.tsx` | No handlers |
-| Overview / Workouts / Activity / Compare tabs | Broken | `app/social/profile/[userId]/page.tsx` | Plain text, not clickable |
+| Profile header, counts, stats, recent workouts | Partial | `app/social/profile/page.tsx` | Hard-coded. Any unknown ID shows "Jordan Patel". |
+| Follow and Message buttons | Broken | `app/social/profile/page.tsx` | No handlers |
+| Overview / Workouts / Activity / Compare tabs | Broken | `app/social/profile/page.tsx` | Plain text, not clickable |
 
 ## Messages (`app/chat/page.tsx`)
 
@@ -118,7 +118,7 @@ No screen is connected to the backend or to Supabase, and there is no sign-in. E
 | Feature | Status | Files |
 |---|---|---|
 | 9:16 share card canvas and `navigator.share` | Partial | `lib/shareCard.ts` |
-| Backend API client | Partial | `lib/api.ts` |
+| Backend API client | Removed | `lib/api.ts` deleted in Phase 2 because nothing called it |
 | Dashboard summary (API) | Partial | `backend/api/routes/dashboard.py`, `backend/domain/services/dashboard_service.py` (returns fixed numbers) |
 
 ## In the spec but not built

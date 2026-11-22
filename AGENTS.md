@@ -5,11 +5,13 @@ Follow `.cursorrules` for architecture. This file is the functional specificatio
 ## Architecture (non-negotiable)
 
 - FitOS owns domain models and business logic.
-- Vendor SDKs (Anthropic, Open Food Facts HTTP, USDA, HealthKit, Health Connect) live only in `backend/adapters/`.
-- `apps/web` and `backend/domain` never import vendor SDKs.
+- `apps/web` is a static export hosted on Cloudflare Pages. It talks to Supabase directly with the anon key; RLS is the security boundary.
+- `apps/web` may import `@supabase/supabase-js`, and only from `apps/web/lib/supabase.ts` and `apps/web/lib/data/`. No other vendor SDK in `apps/web`.
+- Vendor APIs that need secrets (Anthropic, USDA, Open Food Facts) are called only from Supabase Edge Functions in `supabase/functions/`.
+- The service_role key never appears in `apps/web`.
 - Food/prediction records always include `source`, `source_version`, and `confidence`.
-- FastAPI routes validate with Pydantic and call domain services only.
 - PostgreSQL tables enable RLS; policies use `auth.uid()`.
+- `backend/` is legacy reference code and is not deployed. See `backend/README_LEGACY.md`.
 - No Strava API. GPS is native (`navigator.geolocation`), Apple Health, Health Connect, or GPX/FIT import.
 
 ## Feature specification

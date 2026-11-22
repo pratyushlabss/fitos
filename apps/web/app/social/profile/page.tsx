@@ -1,12 +1,24 @@
+"use client";
+
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 import { ArrowLeft, BarChart3, Dumbbell, MessageCircle, UserPlus } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
 import { SectionCard } from "@/components/ui/SectionCard";
 import { StatCard } from "@/components/ui/StatCard";
 
-export default async function SocialProfilePage({ params }: { params: Promise<{ userId: string }> }) {
-  const { userId } = await params;
+export default function SocialProfilePage() {
+  return (
+    <Suspense fallback={null}>
+      <SocialProfile />
+    </Suspense>
+  );
+}
+
+function SocialProfile() {
+  const userId = useSearchParams().get("id") ?? "";
   const maya = userId === "maya-chen";
   const athlete = maya ? { name: "Maya Chen", handle: "@mayamoves", initials: "MC", bio: "Running, lifting, and staying curious.", followers: 284, following: 192 } : { name: "Jordan Patel", handle: "@jordanp", initials: "JP", bio: "Strength-first. Consistency over intensity.", followers: 146, following: 88 };
 

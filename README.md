@@ -4,23 +4,18 @@ Privacy-first fitness OS: workouts, nutrition AI, native GPS, social sharing.
 
 ## Layout
 
-- `apps/web` — Next.js 5-tab PWA shell
-- `backend` — FastAPI, domain services, adapters
+- `apps/web` — Next.js static-export PWA, hosted on Cloudflare Pages
+- `supabase/functions` — Edge Functions for food scan, food search and barcode
 - `packages/types` — shared TypeScript models
 - `database/migrations` — Postgres + RLS
+- `backend` — legacy FastAPI reference, not deployed
 
 ## Run
 
 ```bash
 npm install
+cp apps/web/.env.example apps/web/.env.local
 npm run dev:web
 ```
 
-```bash
-cd backend
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
-uvicorn api.main:app --reload
-```
-
-Copy `backend/.env.example` to `backend/.env` and apply `database/migrations/001_phase0_init.sql` in Supabase.
+Deployment, migrations and secrets are in `DEPLOY.md`.

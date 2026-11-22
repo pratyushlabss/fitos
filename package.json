@@ -7,6 +7,10 @@
   ],
   "scripts": {
     "dev:web": "npm run dev -w @fitos/web",
-    "build:web": "npm run build -w @fitos/web"
+    "build:web": "npm run build -w @fitos/web",
+    "deploy": "npm run build:web && wrangler pages deploy apps/web/out --project-name fitos"
+  },
+  "devDependencies": {
+    "wrangler": "^4.166.0"
   }
 }
