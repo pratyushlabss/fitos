@@ -7,7 +7,7 @@ export type { Session };
 export async function sendSignInCode(email: string): Promise<void> {
   const { error } = await supabase.auth.signInWithOtp({
     email: email.trim().toLowerCase(),
-    options: { shouldCreateUser: true },
+    options: { shouldCreateUser: true, emailRedirectTo: `${window.location.origin}/` },
   });
   if (error) throw new Error(error.message);
 }

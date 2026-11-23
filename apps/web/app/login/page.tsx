@@ -27,7 +27,7 @@ export default function LoginPage() {
     try {
       await sendSignInCode(email);
       setStep("code");
-      setNotice(`We sent a 6-digit code to ${email.trim()}.`);
+      setNotice(`Check ${email.trim()}. Tap the link in the email on this device, or enter the code if it shows one.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not send the code.");
     } finally {
