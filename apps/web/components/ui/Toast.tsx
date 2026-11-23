@@ -17,16 +17,16 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   }, []);
   const toneClass =
     toast?.tone === "error"
-      ? "border-rose-400/30 text-rose-100"
+      ? "border-fg font-semibold text-fg"
       : toast?.tone === "success"
-        ? "border-emerald-400/30 text-emerald-100"
-        : "border-white/10 text-white";
+        ? "border-line bg-max text-bg font-medium"
+        : "border-line text-fg";
   return (
     <ToastContext.Provider value={show}>
       {children}
       {toast ? (
         <div className="pointer-events-none fixed inset-x-0 top-[calc(env(safe-area-inset-top)+12px)] z-50 flex justify-center px-4" role="status">
-          <div className={`max-w-phone rounded-2xl border bg-slate-900/95 px-4 py-3 text-sm shadow-xl backdrop-blur ${toneClass}`}>{toast.message}</div>
+          <div className={`max-w-phone rounded-full border bg-surface-1/95 px-5 py-3 text-sm backdrop-blur-xl ${toneClass}`}>{toast.message}</div>
         </div>
       ) : null}
     </ToastContext.Provider>

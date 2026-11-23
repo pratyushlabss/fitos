@@ -120,10 +120,10 @@ export default function NutritionPage() {
                 </p>
               </div>
               <div className="mt-4 grid grid-cols-4 gap-1">
-                <MacroRing label="Kcal" unit="" value={totals.calories} target={targets.calories} />
-                <MacroRing label="Protein" unit="g" value={totals.protein_g} target={targets.protein_g} color="#60a5fa" />
-                <MacroRing label="Carbs" unit="g" value={totals.carbs_g} target={targets.carbs_g} color="#f59e0b" />
-                <MacroRing label="Fat" unit="g" value={totals.fat_g} target={targets.fat_g} color="#f472b6" />
+                <MacroRing kind="kcal" label="Kcal" unit="" size={76} value={totals.calories} target={targets.calories} />
+                <MacroRing label="Protein" unit="g" value={totals.protein_g} target={targets.protein_g} kind="protein" size={76} />
+                <MacroRing label="Carbs" unit="g" value={totals.carbs_g} target={targets.carbs_g} kind="carbs" size={76} />
+                <MacroRing label="Fat" unit="g" value={totals.fat_g} target={targets.fat_g} kind="fat" size={76} />
               </div>
             </>
           )}

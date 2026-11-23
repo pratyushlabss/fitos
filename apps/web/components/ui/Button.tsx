@@ -1,22 +1,21 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: "primary" | "secondary" | "ghost";
+  variant?: "primary" | "secondary" | "ghost" | "outline";
   children: ReactNode;
 };
 
-export function Button({ variant = "primary", children, className = "", ...props }: ButtonProps) {
-  const variantClasses = {
-    primary: "bg-emerald-500 text-slate-950 hover:bg-emerald-400",
-    secondary: "bg-slate-800 text-white hover:bg-slate-700",
-    ghost: "bg-transparent text-slate-300 hover:bg-slate-800/60",
-  };
+export const buttonClass = {
+  base: "press inline-flex min-h-[44px] items-center justify-center rounded-full px-5 text-sm font-medium transition-[transform,background-color,opacity] duration-150 disabled:cursor-not-allowed disabled:opacity-40",
+  primary: "bg-max font-semibold text-bg",
+  secondary: "bg-surface-3 text-fg",
+  ghost: "bg-transparent text-fg/80",
+  outline: "border border-line bg-transparent text-fg",
+};
 
+export function Button({ variant = "primary", children, className = "", ...props }: ButtonProps) {
   return (
-    <button
-      className={`inline-flex items-center justify-center rounded-xl px-4 py-2.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${variantClasses[variant]} ${className}`}
-      {...props}
-    >
+    <button className={`${buttonClass.base} ${buttonClass[variant]} ${className}`} {...props}>
       {children}
     </button>
   );

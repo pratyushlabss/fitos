@@ -1,13 +1,13 @@
 import type { ReactNode } from "react";
 import type { Metadata, Viewport } from "next";
-import { Inter } from "next/font/google";
+import { GeistMono } from "geist/font/mono";
+import { GeistSans } from "geist/font/sans";
 
 import { Providers } from "@/components/providers/Providers";
 import { AppShell } from "@/components/shell/AppShell";
+import { PREFS_SCRIPT } from "@/lib/theme";
 
 import "./globals.css";
-
-const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
 export const metadata: Metadata = {
   title: "FitOS",
@@ -28,13 +28,19 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: "#070b14",
+  themeColor: [
+    { media: "(prefers-color-scheme: dark)", color: "#000000" },
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+  ],
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
-      <body className={`${inter.variable} antialiased`}>
+    <html lang="en" suppressHydrationWarning className={`${GeistSans.variable} ${GeistMono.variable}`}>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: PREFS_SCRIPT }} />
+      </head>
+      <body className="antialiased">
         <Providers>
           <AppShell>{children}</AppShell>
         </Providers>

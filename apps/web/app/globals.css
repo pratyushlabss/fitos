@@ -2,23 +2,75 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
+/* Monochrome tokens as RGB channels (see DESIGN.md). Light is an exact inversion. */
+:root,
+:root[data-theme="dark"] {
   color-scheme: dark;
+  --bg: 0 0 0;
+  --s1: 10 10 10;
+  --s2: 20 20 20;
+  --s3: 31 31 31;
+  --line: 42 42 42;
+  --mid: 92 92 92;
+  --muted: 138 138 138;
+  --dim: 168 168 168;
+  --soft: 204 204 204;
+  --fg: 237 237 237;
+  --max: 255 255 255;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --bg: 255 255 255;
+    --s1: 245 245 245;
+    --s2: 235 235 235;
+    --s3: 224 224 224;
+    --line: 213 213 213;
+    --mid: 150 150 150;
+    --muted: 117 117 117;
+    --dim: 90 90 90;
+    --soft: 56 56 56;
+    --fg: 18 18 18;
+    --max: 0 0 0;
+  }
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: 255 255 255;
+  --s1: 245 245 245;
+  --s2: 235 235 235;
+  --s3: 224 224 224;
+  --line: 213 213 213;
+  --mid: 150 150 150;
+  --muted: 117 117 117;
+  --dim: 90 90 90;
+  --soft: 56 56 56;
+  --fg: 18 18 18;
+  --max: 0 0 0;
 }
 
 html,
 body {
   min-height: 100%;
   min-height: 100dvh;
-  background: #070b14;
-  color: #f4f7ff;
+  background: rgb(var(--bg));
+  color: rgb(var(--fg));
   overscroll-behavior-y: none;
   -webkit-text-size-adjust: 100%;
 }
 
 body {
-  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   -webkit-tap-highlight-color: transparent;
+  font-feature-settings: "ss01", "cv11";
+}
+
+h1,
+h2,
+h3 {
+  letter-spacing: -0.03em;
 }
 
 a,
@@ -53,4 +105,86 @@ textarea,
     -webkit-user-select: text;
     user-select: text;
   }
+}
+
+@layer components {
+  .num {
+    font-family: var(--font-geist-mono), ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+  }
+  .eyebrow {
+    font-family: var(--font-geist-mono), ui-monospace, monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    color: rgb(var(--muted));
+  }
+  .texture-dots {
+    background-image: radial-gradient(rgb(var(--max) / 0.07) 1px, transparent 1px);
+    background-size: 12px 12px;
+  }
+  .texture-lines {
+    background-image: repeating-linear-gradient(135deg, rgb(var(--max) / 0.05) 0 1px, transparent 1px 8px);
+  }
+  .glow {
+    position: relative;
+    isolation: isolate;
+  }
+  .glow::before {
+    content: "";
+    position: absolute;
+    inset: -30%;
+    z-index: -1;
+    background: radial-gradient(closest-side, rgb(var(--max) / 0.14), transparent);
+    pointer-events: none;
+  }
+  .shimmer {
+    background: linear-gradient(90deg, rgb(var(--s2)) 0%, rgb(var(--s3)) 50%, rgb(var(--s2)) 100%);
+    background-size: 200% 100%;
+    animation: shimmer 1.6s linear infinite;
+  }
+  .dither {
+    filter: url(#fitos-dither);
+  }
+  .grain {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    pointer-events: none;
+    opacity: 0.05;
+    mix-blend-mode: overlay;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+:root[data-no-dither] .dither {
+  filter: grayscale(1) contrast(1.1);
+}
+
+.press {
+  -webkit-tap-highlight-color: transparent;
+}
+button:not(:disabled):active,
+[role="button"]:active,
+.press:active {
+  transform: scale(0.97);
 }

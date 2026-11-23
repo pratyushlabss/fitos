@@ -286,3 +286,16 @@
 - `database/tests`: 92 checks pass.
 - `deno check` passes for all functions.
 - `npm run build:web` passes.
+
+## UI redesign: monochrome, 3D, motion
+
+Visual layer only. No data logic, Supabase calls, edge functions or routes changed. Added dependencies: `three`, `@react-three/fiber`, `@react-three/drei`, `framer-motion`, `geist` (plus `@types/three` for types).
+
+### Step 1: design system
+- `DESIGN.md` documents tokens, states without colour, macro patterns, type, texture, 3D and motion rules.
+- `tailwind.config.js`: every colour is an RGB CSS variable. Legacy hues (emerald, rose, amber, sky, violet, slate, and the app tokens) map onto the grey scale, so all screens turn monochrome at once.
+- `globals.css`: dark tokens by default, an exact light inversion under `prefers-color-scheme: light` or `data-theme="light"`. Adds `.num`, `.eyebrow`, `.texture-dots`, `.texture-lines`, `.glow`, `.shimmer`, `.dither`, press scale 0.97, and reduced-motion overrides.
+- Geist Sans and Geist Mono replace Inter.
+- `lib/theme.ts`: per-device theme, dither and 3D preferences, applied before paint by an inline script.
+- Static SVG grain overlay at 5% with overlay blend; a shared 1-bit dither filter.
+- Primitives: Button (pill, 44px), shimmer skeletons, Sheet (spring in, drag down to dismiss), MacroRing and MacroBar with pattern fills (protein solid, carbs hatch, fat dots), AnimatedNumber count-up, 200ms page transition, global haptic on press, monochrome nav, header, toast, fields and segmented control.

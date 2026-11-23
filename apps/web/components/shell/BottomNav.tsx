@@ -32,7 +32,7 @@ export function BottomNav() {
   if (status !== "signed_in" || HIDDEN_ON.some((route) => pathname.startsWith(route))) return null;
 
   return (
-    <nav className="fixed bottom-0 left-1/2 z-20 w-full max-w-phone -translate-x-1/2 border-t border-white/10 bg-panel/95 pb-[env(safe-area-inset-bottom)] backdrop-blur">
+    <nav className="fixed bottom-0 left-1/2 z-20 w-full max-w-phone -translate-x-1/2 border-t border-line bg-bg/85 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl">
       <ul className="grid grid-cols-5">
         {tabs.map((tab) => {
           const matches = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
@@ -44,14 +44,15 @@ export function BottomNav() {
               <Link
                 href={tab.href}
                 aria-current={active ? "page" : undefined}
-                className={`relative flex min-h-[64px] flex-col items-center justify-center gap-1 text-[11px] ${
-                  active ? "text-accent" : "text-muted"
+                className={`press relative flex min-h-[60px] flex-col items-center justify-center gap-1 text-[10px] tracking-wide transition-colors ${
+                  active ? "font-semibold text-max" : "text-muted"
                 }`}
               >
-                <Icon size={22} strokeWidth={active ? 2.4 : 1.8} />
+                <Icon size={22} strokeWidth={active ? 2 : 1.5} />
+                {active ? <span className="absolute top-0 h-px w-8 bg-max" aria-hidden="true" /> : null}
                 {tab.label}
                 {badge ? (
-                  <span className="absolute right-[calc(50%-20px)] top-2 min-w-[18px] rounded-full bg-rose-500 px-1 text-center text-[10px] font-semibold leading-[18px] text-white">
+                  <span className="absolute right-[calc(50%-20px)] top-2 min-w-[18px] num rounded-full border border-bg bg-max px-1 text-center text-[10px] font-semibold leading-[16px] text-bg">
                     {badge}
                   </span>
                 ) : null}

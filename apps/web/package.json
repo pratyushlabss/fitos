@@ -10,21 +10,27 @@
   },
   "dependencies": {
     "@fitos/types": "*",
+    "@react-three/drei": "^9.122.0",
+    "@react-three/fiber": "^8.18.0",
     "@supabase/supabase-js": "^2.119.2",
     "@tanstack/react-query": "^5.108.2",
+    "framer-motion": "^11.18.2",
+    "geist": "^1.9.2",
     "html5-qrcode": "^2.3.8",
     "lucide-react": "^0.468.0",
     "next": "^14.2.15",
     "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "recharts": "^3.11.0"
+    "recharts": "^3.11.0",
+    "three": "^0.170.0"
   },
   "devDependencies": {
     "@types/node": "^20.16.11",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.1",
+    "@types/three": "^0.170.0",
     "autoprefixer": "^10.4.20",
     "eslint": "^8.57.1",
     "eslint-config-next": "^14.2.15",
