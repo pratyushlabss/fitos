@@ -60,6 +60,11 @@ npx supabase migration list
 ```
 
 - **Fresh project, nothing applied yet:** run `npx supabase db push`.
+- **If the direct database host refuses connections** (it is IPv6-only), push through the session pooler instead:
+
+```bash
+npx supabase db push --db-url "postgresql://postgres.lnspwuepxdlhgvcdwrte:<db-password>@aws-1-ap-southeast-2.pooler.supabase.com:5432/postgres"
+```
 - **You already ran some files by hand in the SQL editor:** mark those as applied first, then push the rest. For example, if 001 to 006 are already in:
 
 ```bash

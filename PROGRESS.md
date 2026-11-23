@@ -142,3 +142,13 @@
 - `npm run build:web` passes. All 25 routes are static.
 - The exported HTML contains the manifest link, apple-touch-icon and `viewport-fit=cover`.
 - A JSX scan found no `<button>` or `<Button>` without a handler.
+
+## Live database setup (2026-11-23)
+
+- `apps/web/.env.production` and `.env.local` now hold the project URL and publishable key. Both are gitignored. The URL is the base `https://lnspwuepxdlhgvcdwrte.supabase.co`, without `/rest/v1/`.
+- The direct database host is IPv6-only and refused connections from this Mac, so migrations go through the session pooler at `aws-1-ap-southeast-2.pooler.supabase.com:5432` (Sydney), user `postgres.lnspwuepxdlhgvcdwrte`.
+- `supabase db push` applied all 8 migrations to the live project.
+- All 68 RLS checks ran on the live database inside one transaction that was rolled back, and all passed. No test users or rows remain.
+- Live state: 52 public tables, all with RLS. 58 global exercises. Buckets: `avatars` is public, `post-media` and `progress-photos` are private. Realtime is on for posts, comments, post_reactions and messages.
+- Through the public API, signed out: tables and RPCs return permission denied, and the `private` helpers are not exposed.
+- Edge Functions are not deployed yet. That needs `npx supabase login`.
