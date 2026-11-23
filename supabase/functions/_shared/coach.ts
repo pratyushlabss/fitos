@@ -2,7 +2,7 @@ import { chat, type ChatMessage, type ToolDef } from "./ai.ts";
 import { embed, toVector } from "./embed.ts";
 import { analyzeText, confirmDraft, type Ctx, type Draft, localDate, type MealType, macrosFor, searchFoods } from "./pipeline.ts";
 
-const TOOLS: ToolDef[] = [
+export const TOOLS: ToolDef[] = [
   {
     name: "get_day_summary",
     description: "Exact totals, goals and logged items for one day (YYYY-MM-DD). Use for 'what did I eat', 'calories left'.",

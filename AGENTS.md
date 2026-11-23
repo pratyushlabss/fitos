@@ -7,7 +7,7 @@ Follow `.cursorrules` for architecture. This file is the functional specificatio
 - FitOS owns domain models and business logic.
 - `apps/web` is a static export hosted on Cloudflare Pages. It talks to Supabase directly with the anon key; RLS is the security boundary.
 - `apps/web` may import `@supabase/supabase-js`, and only from `apps/web/lib/supabase.ts` and `apps/web/lib/data/`. No other vendor SDK in `apps/web`.
-- AI is called only from Supabase Edge Functions through `supabase/functions/_shared/ai.ts`: one provider (Gemini or Anthropic), one key (`AI_PROVIDER`, `AI_API_KEY`, `AI_MODEL`), plain REST.
+- AI is called only from Supabase Edge Functions through `supabase/functions/_shared/ai.ts`: one provider (Groq), one key (`AI_API_KEY`, `AI_MODEL`), plain REST.
 - Supabase is the single source of food data. Open Food Facts (no key) is used only for barcode lookup.
 - The service_role key never appears in `apps/web`.
 - Food/prediction records always include `source`, `source_version`, and `confidence`.

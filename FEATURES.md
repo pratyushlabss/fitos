@@ -245,3 +245,18 @@ This section supersedes every nutrition row above. "Working" assumes migrations 
 | "AI logging paused for today, use search or manual log" when a limit is hit, with manual, search and barcode still available | Working | `PAUSED_MESSAGE` in `ai.ts`, AI error states in `AddFoodSheet.tsx` |
 | Prices and limits set through secrets | Working | `AI_PRICE_IN_PER_M`, `AI_PRICE_OUT_PER_M`, `AI_MONTHLY_BUDGET_USD`, `AI_DAILY_CALL_CAP` |
 | Admin-only usage card on Profile: month spend against budget, calls today against cap | Working once `ADMIN_USER_ID` is set | `components/profile/AdminUsageCard.tsx`, `admin_usage` action |
+
+## Groq as the only AI provider (2026-11-23)
+
+This supersedes the provider and spend rows above. There is no monthly budget or cost tracking. The call caps remain.
+
+| Feature | Status | Main files |
+|---|---|---|
+| Text, photo and coach on Groq (`qwen/qwen3.8-27b`), tested live with real calls | Working | `supabase/functions/_shared/ai.ts` |
+| Photos: base64 data URL, at most 3, 1024 px WebP | Working | `ai.ts`, `lib/data/nutrition.ts` |
+| JSON mode with the schema in the system prompt, validated and retried once | Working | `generateJSON` |
+| Thinking off for logging, hidden thinking for the coach | Working | `reasoningParams` |
+| 429 shows "AI paused, use search or manual log", with no retry loop | Working, verified live | `groq()` in `ai.ts` |
+| 30 calls per user per day, plus a global daily cap | Working | `011_ai_call_guard.sql` |
+| Admin usage card: calls today against the cap, calls this month, tokens | Working once `ADMIN_USER_ID` is set | `components/profile/AdminUsageCard.tsx` |
+| Free-tier throughput | Limited | About 1,000 output tokens per minute across the app, roughly one or two AI meal analyses a minute. Database matches and the cache don't use it. |

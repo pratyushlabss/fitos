@@ -249,3 +249,40 @@
 - `database/tests`: 93 checks pass, including 10 new guard checks: user limit, global cap, budget, record, release, summary, and no access for signed-in users.
 - `deno check` passes for all functions. `npm run build:web` passes.
 - The Gemini key is valid (the models list returned). A real `generateJSON` call reached Google and got **402 "prepayment credits are depleted"**. The guard released the reserved slot as designed. The key was only passed on the command line and is not stored in the repo.
+
+## Switch to Groq as the only AI provider (2026-11-23)
+
+**Changed**
+- `supabase/functions/_shared/ai.ts` was rewritten by design: Groq only, using `POST https://api.groq.com/openai/v1/chat/completions` with Bearer `AI_API_KEY`. Gemini and Anthropic code is removed, and so is the cost math.
+  - JSON: `response_format: {type:"json_object"}`, schema in the system prompt, minified output, validated and retried once.
+  - Images: `image_url` data URLs, at most 3 per request.
+  - Coach: OpenAI-style `tools` and `tool_calls`. The assistant message with its tool calls is echoed back within the turn.
+  - Thinking: logging uses `reasoning_effort: "none"`; the coach uses `reasoning_format: "hidden"`. gpt-oss models get low or medium effort with no reasoning returned.
+  - Errors: 429, 402 and 403 give "AI paused, use search or manual log." with no retry, and the reserved slot is released. Requests send a `User-Agent`, because Groq's Cloudflare front blocks some default clients with error 1010.
+  - Output is capped at 950 completion tokens for logging (`AI_MAX_OUTPUT_TOKENS`) and 700 for the coach.
+- Default model: **`qwen/qwen3.8-27b`**. The requested `qwen/qwen3.6-27b` is not offered on this account; `GET /models` lists only qwen3.8-27b, gpt-oss-20b, gpt-oss-120b and non-chat models. qwen3.8 is the only one that accepted images.
+- `database/migrations/011_ai_spend_guard.sql` was renamed to `011_ai_call_guard.sql` and edited in place, since it had never been applied to the live project:
+  - no cost column and no monthly budget
+  - `ai_guard_reserve(user, action, provider, model, user_limit, global_cap)`
+  - `ai_guard_record(id, tokens_in, tokens_out)`
+  - `ai_spend_summary` returns calls and tokens
+- `_shared/pipeline.ts`: per-100 g macros in AI output are now an array `[kcal, P, C, F, fibre]`, and each dish has at most 6 main ingredients, skipping salt and spices under 5 g. The pipeline turns arrays back into objects.
+- Secrets: `AI_API_KEY`, `AI_MODEL`, `AI_DAILY_CALL_CAP`, `ADMIN_USER_ID`, plus optional `AI_MAX_OUTPUT_TOKENS`. `AI_PROVIDER`, the price secrets and the budget secret are gone.
+- The admin card shows calls today against the cap, calls this month, users and tokens.
+
+**Verified live against Groq** (free tier; the key was passed only on the command line, never stored)
+
+| Call | Time | Tokens in | Tokens out | Result |
+|---|---|---|---|---|
+| Text, "2 masala dosa with sambar and chutney" | 1.8 s | 548 | 756 (1,656 before the compact schema) | south_indian, 3 dishes with ingredient breakdowns |
+| Photo, a Wikimedia masala dosa image at 1024 px WebP | 0.9 s | 2,081 | 107 | Dosa × 2, about 200 g; coconut chutney; visible oil 5 g |
+| Coach turn 1 | 0.4 s | 792 | 49 | Called `get_day_summary` and `get_goals` |
+| Coach turn 2 | n/a | 926 | 52 | "750 kcal left, 58 g protein left" |
+
+- With `reasoning_effort: "none"`, JSON came back in 0.22 s, against 1.04 s with thinking on.
+- Rate limits: 1,000 requests a day, 8,000 total tokens a minute, and 1,000 output tokens a minute for qwen3.8-27b. A second analysis within the same minute got a 429; the app showed the paused message and released the slot.
+
+**Tests**
+- `database/tests`: 92 checks pass.
+- `deno check` passes for all functions.
+- `npm run build:web` passes.

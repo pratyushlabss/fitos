@@ -74,36 +74,35 @@ npx supabase db push
 
 ### Deploy edge functions and secrets
 
-FitOS uses exactly one AI provider. Its secrets:
+FitOS uses one AI provider: **Groq** (OpenAI-compatible API, free tier). Its secrets:
 
 | Secret | Value |
 |---|---|
-| `AI_PROVIDER` | `gemini` (default) or `anthropic` |
-| `AI_API_KEY` | The key for that provider: Google AI Studio (https://aistudio.google.com/apikey) or Anthropic (https://console.anthropic.com) |
-| `AI_MODEL` | Optional. Defaults to `gemini-2.5-flash` for Gemini and `claude-opus-5-5` for Anthropic. |
-| `AI_PRICE_IN_PER_M` | USD per 1M input tokens, used for cost estimates. Defaults: 0.30 (Gemini 2.5 Flash), 4 (Claude Opus 5.5). Update it when prices change. |
-| `AI_PRICE_OUT_PER_M` | USD per 1M output tokens, thinking included. Defaults: 2.50 (Gemini 2.5 Flash), 20 (Claude Opus 5.5). |
-| `AI_MONTHLY_BUDGET_USD` | Hard monthly cap on estimated spend across all users, per UTC calendar month. Default 8. |
-| `AI_DAILY_CALL_CAP` | Hard cap on AI calls per UTC day across all users. Default 300. Each user is also limited to 30 a day. |
+| `AI_API_KEY` | Your Groq key (`gsk_…`) from https://console.groq.com/keys |
+| `AI_MODEL` | Optional. Default `qwen/qwen3.8-27b`, the model on your account that accepts images. Text-only alternatives are `openai/gpt-oss-20b` and `openai/gpt-oss-120b`, but photo logging needs a vision model. |
+| `AI_DAILY_CALL_CAP` | Hard cap on AI calls per UTC day across all users. Default 300. Groq free allows 1,000 requests a day. Each user is also limited to 30 a day. |
 | `ADMIN_USER_ID` | Your user id. Only this user sees the AI usage card on Profile. |
+| `AI_MAX_OUTPUT_TOKENS` | Optional. Default 950. Keep it under your Groq output-tokens-per-minute limit, which is 1,000 on the free tier. |
 
 ```bash
-npx supabase secrets set AI_PROVIDER=gemini AI_API_KEY=<key> AI_MODEL=gemini-2.5-flash \
-  AI_PRICE_IN_PER_M=0.30 AI_PRICE_OUT_PER_M=2.50 AI_MONTHLY_BUDGET_USD=8 AI_DAILY_CALL_CAP=300 \
-  ADMIN_USER_ID=<your user id>
+npx supabase secrets set AI_API_KEY=<groq key> AI_MODEL=qwen/qwen3.8-27b AI_DAILY_CALL_CAP=300 ADMIN_USER_ID=<your user id>
 npx supabase functions deploy nutrition-ai
 npx supabase functions deploy barcode
 npx supabase functions deploy embed-worker --no-verify-jwt
 ```
 
-- Remove secrets from the old setup if you set them: `npx supabase secrets unset ANTHROPIC_API_KEY USDA_API_KEY`.
+- Remove secrets from earlier setups if you set any: `npx supabase secrets unset AI_PROVIDER AI_PRICE_IN_PER_M AI_PRICE_OUT_PER_M AI_MONTHLY_BUDGET_USD ANTHROPIC_API_KEY USDA_API_KEY`.
 - Delete the old functions if they were deployed: `npx supabase functions delete food-scan` and `npx supabase functions delete food-search`.
 - `SUPABASE_URL`, `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` are provided to functions automatically.
 - Embeddings use Supabase's built-in `gte-small` model inside the Edge Runtime, so they need no key.
-- **Spend guard:** before every AI request, one locked SQL call checks this month's estimated spend against `AI_MONTHLY_BUDGET_USD`, today's total calls against `AI_DAILY_CALL_CAP`, and the user's calls today against 30. If any check fails, no AI call is made and the app says "AI logging paused for today, use search or manual log". Search, barcode and manual logging keep working. Database matches and cache hits never count.
-- After every request, the tokens and estimated cost are written to `ai_usage`. A request that fails before a billable response gives its slot back. A provider billing error (402) also shows the paused message.
+- **Logging requests run with thinking off** (`reasoning_effort: "none"`), which is about 5× faster. **The coach may think** (`reasoning_format: "hidden"`), and its reasoning never appears in replies.
+- **JSON** uses `response_format: {type: "json_object"}` with the schema in the system prompt. Answers are validated and retried once.
+- **Images** go as base64 data URLs: at most 3 per request, compressed to 1024 px WebP first.
+- **Call guard:** before every AI request, one locked SQL call checks today's total calls against `AI_DAILY_CALL_CAP` and the user's calls today against 30. If either fails, no AI call is made and the app says "AI paused, use search or manual log". Search, barcode and manual logging keep working. Database matches and cache hits never count.
+- **429 from Groq** shows the same paused message, with no retry loop. The slot is given back.
+- Token counts are logged per request in `ai_usage`. Groq free has no billing, so there is no cost tracking.
+- **Free-tier throughput:** Groq allows about 1,000 output tokens per minute for this model across the whole app. A text meal analysis uses about 750 output tokens, a photo about 100 to 500, and a coach turn about 50. So expect roughly one or two AI meal analyses per minute for everyone combined. Database matches and the semantic cache don't use any of that budget.
 - **Finding your user id:** sign in to the app once, then copy your UID from **Authentication → Users** in Supabase and set it as `ADMIN_USER_ID`.
-- With Anthropic, the function sends `fallbacks: "default"` so a declined request is retried on Anthropic's recommended fallback model.
 
 ### Schedule the embed-worker (pg_cron + pg_net)
 

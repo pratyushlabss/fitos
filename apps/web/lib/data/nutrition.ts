@@ -420,13 +420,11 @@ export function coachSend(message: string): Promise<{ reply: string; drafts: Foo
 // ---------- admin ----------
 
 export type AiUsageSummary = {
-  month_spend_usd: number;
   month_calls: number;
   today_calls: number;
   today_users: number;
   today_tokens_in: number;
   today_tokens_out: number;
-  monthly_budget_usd: number;
   daily_call_cap: number;
   user_daily_limit: number;
   provider: string;

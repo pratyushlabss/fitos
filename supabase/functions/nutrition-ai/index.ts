@@ -1,7 +1,7 @@
 // Actions: analyze_text, analyze_photo, confirm, search, chat. Nothing is logged until confirm.
 import { encodeBase64 } from "jsr:@std/encoding@1/base64";
 
-import { AiError, aiInfo, spendLimits } from "../_shared/ai.ts";
+import { AiError, aiInfo, callLimits } from "../_shared/ai.ts";
 import { authenticate, serviceClient } from "../_shared/auth.ts";
 import { coachReply } from "../_shared/coach.ts";
 import { fail, json, preflight } from "../_shared/cors.ts";
@@ -79,11 +79,8 @@ Deno.serve(async (req) => {
         if (error) return fail(req, 500, "failed", error.message);
         return json(req, {
           ...(data as Record<string, number>),
-          monthly_budget_usd: spendLimits.monthlyBudgetUsd,
-          daily_call_cap: spendLimits.dailyCallCap,
-          user_daily_limit: spendLimits.userDailyLimit,
-          price_in_per_m: spendLimits.priceInPerM,
-          price_out_per_m: spendLimits.priceOutPerM,
+          daily_call_cap: callLimits.dailyCallCap,
+          user_daily_limit: callLimits.userDailyLimit,
           provider: aiInfo.provider,
           model: aiInfo.model,
         });

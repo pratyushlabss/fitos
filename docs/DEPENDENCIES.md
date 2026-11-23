@@ -6,7 +6,7 @@
 | Pydantic | Request/domain validation | Yes | Invalid payload rejected | Pydantic-compatible validation |
 | httpx | Async provider HTTP | Yes | Provider error is isolated | Any async HTTP client behind adapters |
 | Supabase Python client | Initial PostgreSQL/auth/storage integration | Optional | Native fallback or 503 for persistence-dependent operations | SQLAlchemy/PostgreSQL, R2/S3, another auth provider |
-| AI provider REST API (Gemini or Anthropic) | Meal text/photo analysis and coach | Optional | Search, barcode and manual logging remain available | Switch `AI_PROVIDER` |
+| Groq API (OpenAI-compatible) | Meal text/photo analysis and coach | Optional | Search, barcode and manual logging remain available | Change `AI_MODEL` |
 | Open Food Facts API | Barcode lookup | Optional | Product lookup returns not found | Manual food entry |
 | Supabase gte-small (Edge Runtime) | Food embeddings for retrieval | Yes for semantic search | Trigram search still works | Any 384-dim embedding model |
 | PostgreSQL | Canonical database | Yes in production | API cannot persist data | PostgreSQL-compatible managed service |

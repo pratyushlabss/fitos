@@ -361,11 +361,24 @@ async function saveDish(ctx: Ctx, item: DraftItem, ingredients: DraftIngredient[
 
 // ---------- AI schemas ----------
 
-const PER100: JsonSchema = {
-  type: "object",
-  properties: { kcal: { type: "number" }, protein_g: { type: "number" }, carbs_g: { type: "number" }, fat_g: { type: "number" }, fibre_g: { type: "number" } },
-  required: ["kcal", "protein_g", "carbs_g", "fat_g", "fibre_g"],
-};
+// Compact on purpose: Groq's free tier allows ~1000 output tokens per minute.
+const PER100: JsonSchema = { type: "array", items: { type: "number" }, description: "[kcal, protein_g, carbs_g, fat_g, fibre_g] per 100 g" };
+
+function toPer100(value: unknown): Per100 {
+  if (Array.isArray(value)) {
+    const [kcal, protein_g, carbs_g, fat_g, fibre_g] = value.map((v) => n(v));
+    return { kcal, protein_g, carbs_g, fat_g, fibre_g: fibre_g ?? 0 };
+  }
+  return per100Of((value ?? {}) as Per100);
+}
+
+function normalizeDishes<T extends { per100: unknown; ingredients: Array<{ per100: unknown }> }>(dishes: T[]): T[] {
+  return dishes.map((dish) => ({
+    ...dish,
+    per100: toPer100(dish.per100),
+    ingredients: (dish.ingredients ?? []).map((ing) => ({ ...ing, per100: toPer100(ing.per100) })),
+  }));
+}
 const INGREDIENT: JsonSchema = {
   type: "object",
   properties: {
@@ -380,7 +393,7 @@ const INGREDIENT: JsonSchema = {
 const CUISINE_ENUM = { type: "string", enum: CUISINES } as JsonSchema;
 const UNIT_ENUM = { type: "string", enum: UNITS } as JsonSchema;
 
-const TEXT_SCHEMA: JsonSchema = {
+export const TEXT_SCHEMA: JsonSchema = {
   type: "object",
   properties: {
     cuisine: CUISINE_ENUM,
@@ -399,7 +412,7 @@ const TEXT_SCHEMA: JsonSchema = {
           grams: { type: "number", description: "total grams eaten" },
           confidence: { type: "number" },
           per100: PER100,
-          ingredients: { type: "array", items: INGREDIENT },
+          ingredients: { type: "array", items: INGREDIENT, description: "at most 6 main raw ingredients incl. cooking fat; skip salt and spices under 5 g; empty when matched" },
         },
         required: ["name", "matched_food_id", "is_dish", "quantity", "unit", "grams", "confidence", "per100", "ingredients"],
       },
@@ -408,7 +421,7 @@ const TEXT_SCHEMA: JsonSchema = {
   required: ["cuisine", "confidence", "question", "dishes"],
 };
 
-const PHOTO_SCHEMA: JsonSchema = {
+export const PHOTO_SCHEMA: JsonSchema = {
   type: "object",
   properties: {
     cuisine: CUISINE_ENUM,
@@ -433,7 +446,7 @@ const PHOTO_SCHEMA: JsonSchema = {
   required: ["cuisine", "confidence", "items"],
 };
 
-const BREAKDOWN_SCHEMA: JsonSchema = {
+export const BREAKDOWN_SCHEMA: JsonSchema = {
   type: "object",
   properties: {
     question: { type: ["string", "null"] },
@@ -445,7 +458,7 @@ const BREAKDOWN_SCHEMA: JsonSchema = {
           index: { type: "integer" },
           matched_food_id: { type: ["string", "null"] },
           per100: PER100,
-          ingredients: { type: "array", items: INGREDIENT },
+          ingredients: { type: "array", items: INGREDIENT, description: "at most 6 main raw ingredients incl. cooking fat; skip salt and spices under 5 g" },
         },
         required: ["index", "matched_food_id", "per100", "ingredients"],
       },
@@ -617,7 +630,7 @@ ${GUIDE}`;
   const ai = await generateJSON<{ cuisine: string; confidence: number; question: string | null; dishes: AiDish[] }>(prompt, TEXT_SCHEMA, undefined, ctx.guard);
   const created: string[] = [];
   const cuisine = normalizeCuisine(ai.cuisine);
-  const items = await resolveDishes(ctx, ai.dishes ?? [], candidates, cuisine, created);
+  const items = await resolveDishes(ctx, normalizeDishes(ai.dishes ?? []), candidates, cuisine, created);
   await embedFoods(ctx, created);
   const confidence = Math.max(0, Math.min(1, ai.confidence));
   const draft: Draft = {
@@ -688,6 +701,7 @@ ${GUIDE}`,
       ctx.guard,
     );
     question = second.question;
+    second.dishes = normalizeDishes((second.dishes ?? []).map((d) => ({ ...d, ingredients: d.ingredients ?? [] })));
     const aiDishes: AiDish[] = unmatched.map((i) => {
       const found = second.dishes.find((d) => d.index === i);
       const p = photoItems[i];

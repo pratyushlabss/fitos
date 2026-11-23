@@ -198,9 +198,10 @@ Required for text and photo meal analysis and the nutrition coach. Exactly one p
 Supabase secrets:
 
 ```env
-AI_PROVIDER=gemini   # or anthropic
-AI_API_KEY=
-AI_MODEL=            # optional; gemini-2.5-flash or claude-opus-5-5 by default
+AI_API_KEY=          # Groq key
+AI_MODEL=            # optional; qwen/qwen3.8-27b by default
+AI_DAILY_CALL_CAP=   # optional; 300 by default
+ADMIN_USER_ID=       # your user id, for the admin usage card
 ```
 
 Required adapter boundary:
@@ -356,7 +357,7 @@ Core project files:
 To complete the app according to the FitOS architecture, you need the following final set of integrations and configs:
 
 - Supabase project and migrations
-- One AI provider key (`AI_PROVIDER`, `AI_API_KEY`, `AI_MODEL`)
+- One Groq key (`AI_API_KEY`, optional `AI_MODEL`)
 - Open Food Facts configuration
 - frontend API base URL
 - auth + RLS policy enforcement

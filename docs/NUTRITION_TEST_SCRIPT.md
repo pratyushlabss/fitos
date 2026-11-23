@@ -1,6 +1,6 @@
 # Nutrition test script
 
-Run these after deploying migrations 009 and 010, `nutrition-ai`, `barcode` and `embed-worker`, with `AI_PROVIDER` and `AI_API_KEY` set. Use Nutrition › Add unless the step says otherwise.
+Run these after deploying migrations 009 and 010, `nutrition-ai`, `barcode` and `embed-worker`, with `AI_API_KEY` (Groq) set. Use Nutrition › Add unless the step says otherwise.
 
 | # | Do this | What should happen |
 |---|---|---|
