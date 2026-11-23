@@ -2,8 +2,8 @@
 export type ThemePref = "system" | "dark" | "light";
 const KEY = "fitos-ui";
 
-export type UiPrefs = { theme: ThemePref; dither: boolean; threeD: boolean };
-const DEFAULTS: UiPrefs = { theme: "system", dither: true, threeD: true };
+export type UiPrefs = { theme: ThemePref; dither: boolean; threeD: boolean; motion: boolean };
+const DEFAULTS: UiPrefs = { theme: "system", dither: true, threeD: true, motion: false };
 
 export function readPrefs(): UiPrefs {
   try {

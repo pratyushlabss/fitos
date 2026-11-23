@@ -1,6 +1,9 @@
 import type { Meal, MealType, Profile } from "@fitos/types";
 
-export type MacroTotals = { calories: number; protein_g: number; carbs_g: number; fat_g: number };
+export type MacroTotals = { calories: number; protein_g: number; carbs_g: number; fat_g: number; fibre_g: number };
+
+// No per-user fibre goal is stored; 30 g/day is the common adult guideline.
+export const FIBRE_TARGET_G = 30;
 
 export const MEAL_TYPES: MealType[] = ["breakfast", "lunch", "dinner", "snacks"];
 
@@ -12,13 +15,14 @@ export const MEAL_LABELS: Record<MealType, string> = {
 };
 
 export function totalsFor(meals: Meal[]): MacroTotals {
-  const totals: MacroTotals = { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0 };
+  const totals: MacroTotals = { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0, fibre_g: 0 };
   for (const meal of meals) {
     for (const item of meal.meal_items) {
       totals.calories += item.calories;
       totals.protein_g += item.protein_g;
       totals.carbs_g += item.carbs_g;
       totals.fat_g += item.fat_g;
+      totals.fibre_g += item.fibre_g ?? 0;
     }
   }
   return {
@@ -26,6 +30,7 @@ export function totalsFor(meals: Meal[]): MacroTotals {
     protein_g: Math.round(totals.protein_g),
     carbs_g: Math.round(totals.carbs_g),
     fat_g: Math.round(totals.fat_g),
+    fibre_g: Math.round(totals.fibre_g),
   };
 }
 
@@ -35,6 +40,7 @@ export function targetsFor(profile: Profile | null): MacroTotals {
     protein_g: profile?.protein_target_g ?? 160,
     carbs_g: profile?.carbs_target_g ?? 250,
     fat_g: profile?.fat_target_g ?? 70,
+    fibre_g: FIBRE_TARGET_G,
   };
 }
 

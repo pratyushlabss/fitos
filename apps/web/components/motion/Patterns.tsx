@@ -1,7 +1,7 @@
-// Macro fills by pattern, never colour: protein solid, carbs 45° hatch, fat dots.
-export type MacroKind = "protein" | "carbs" | "fat" | "kcal";
+// Macro fills by pattern, never colour: protein solid, carbs 45° hatch, fat dots, fibre horizontal lines.
+export type MacroKind = "protein" | "carbs" | "fat" | "fibre" | "kcal";
 
-export const MACRO_LABEL: Record<MacroKind, string> = { protein: "Protein", carbs: "Carbs", fat: "Fat", kcal: "Calories" };
+export const MACRO_LABEL: Record<MacroKind, string> = { protein: "Protein", carbs: "Carbs", fat: "Fat", fibre: "Fibre", kcal: "Calories" };
 
 export function PatternDefs({ id }: { id: string }) {
   return (
@@ -14,6 +14,10 @@ export function PatternDefs({ id }: { id: string }) {
         <rect width="4" height="4" fill="rgb(var(--max) / 0.12)" />
         <circle cx="2" cy="2" r="1.1" fill="rgb(var(--max))" />
       </pattern>
+      <pattern id={`${id}-fibre`} width="4" height="4" patternUnits="userSpaceOnUse">
+        <rect width="4" height="4" fill="rgb(var(--max) / 0.12)" />
+        <rect width="4" height="1.5" fill="rgb(var(--max))" />
+      </pattern>
     </defs>
   );
 }
@@ -21,6 +25,7 @@ export function PatternDefs({ id }: { id: string }) {
 export function patternFill(id: string, kind: MacroKind): string {
   if (kind === "carbs") return `url(#${id}-carbs)`;
   if (kind === "fat") return `url(#${id}-fat)`;
+  if (kind === "fibre") return `url(#${id}-fibre)`;
   return "rgb(var(--max))";
 }
 

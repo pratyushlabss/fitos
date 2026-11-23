@@ -11,6 +11,7 @@ import { AddFoodSheet } from "@/components/nutrition/AddFoodSheet";
 import { ScreenHeader } from "@/components/shell/ScreenHeader";
 import { Button } from "@/components/ui/Button";
 import { Field, Segmented, SelectInput, TextInput } from "@/components/ui/Field";
+import { MacroBar } from "@/components/motion/MacroBar";
 import { MacroRing } from "@/components/ui/MacroRing";
 import { PullToRefresh } from "@/components/ui/PullToRefresh";
 import { SectionCard } from "@/components/ui/SectionCard";
@@ -124,6 +125,9 @@ export default function NutritionPage() {
                 <MacroRing label="Protein" unit="g" value={totals.protein_g} target={targets.protein_g} kind="protein" size={76} />
                 <MacroRing label="Carbs" unit="g" value={totals.carbs_g} target={targets.carbs_g} kind="carbs" size={76} />
                 <MacroRing label="Fat" unit="g" value={totals.fat_g} target={targets.fat_g} kind="fat" size={76} />
+              </div>
+              <div className="mt-4">
+                <MacroBar kind="fibre" value={totals.fibre_g} target={targets.fibre_g} />
               </div>
             </>
           )}

@@ -1,18 +1,20 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, ChevronRight, Flame, MessageCircle, Moon, Sparkles } from "lucide-react";
+import { Activity, ChevronRight, Dumbbell, MessageCircle, Moon } from "lucide-react";
 import Link from "next/link";
 
 import { useProfile } from "@/components/auth/AuthProvider";
 import { ScreenHeader } from "@/components/shell/ScreenHeader";
-import { ActionCard } from "@/components/ui/ActionCard";
+import { AnimatedNumber } from "@/components/motion/AnimatedNumber";
+import { MacroBar } from "@/components/motion/MacroBar";
+import { TiltCard } from "@/components/motion/TiltCard";
+import { HomeHero } from "@/components/three/HomeHero";
 import { Avatar } from "@/components/ui/Avatar";
 import { PullToRefresh } from "@/components/ui/PullToRefresh";
-import { SectionCard } from "@/components/ui/SectionCard";
 import { ShareCardButton } from "@/components/ui/ShareCardButton";
-import { StatCard } from "@/components/ui/StatCard";
-import { EmptyState, QueryView, Skeleton, SkeletonList } from "@/components/ui/States";
+import { buttonClass } from "@/components/ui/Button";
+import { EmptyState, QueryView, Skeleton } from "@/components/ui/States";
 import { localDayKey } from "@/lib/data/base";
 import { getMealsForDay } from "@/lib/data/nutrition";
 import { getMyStreak } from "@/lib/data/profile";
@@ -62,122 +64,123 @@ export default function HomePage() {
       }
     : null;
 
+  const kcalLeft = targets.calories - totals.calories;
+  const ratio = targets.calories > 0 ? totals.calories / targets.calories : 0;
+  const streakDays = streak.data ?? 0;
+
   return (
     <PullToRefresh onRefresh={() => queryClient.invalidateQueries()}>
       <ScreenHeader
         eyebrow={new Date().toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}
         title={`${greeting()}, ${profile.display_name.split(" ")[0] || "athlete"}`}
-        subtitle="Workouts, meals, and GPS in one private OS."
+        subtitle=""
       />
-      <div className="space-y-5">
-        <section className="rounded-3xl border border-emerald-300/20 bg-[linear-gradient(145deg,rgba(16,185,129,.18),rgba(15,23,42,.92))] p-5">
-          <div className="flex items-end justify-between">
-            <div>
-              <p className="text-xs uppercase tracking-[0.16em] text-emerald-200">Today&apos;s recovery</p>
-              {recovery.isPending ? (
-                <Skeleton className="mt-2 h-12 w-20" />
-              ) : (
-                <p className="mt-2 text-5xl font-semibold text-white">{score ?? "–"}</p>
-              )}
-              <p className="mt-1 text-sm text-slate-300">{score === null ? "Check in to get a score" : recoveryLabel(score)}</p>
-            </div>
-            <Link className="text-sm text-emerald-300" href="/recovery">
-              {score === null ? "Check in" : "View recovery"}
+      <div className="space-y-4">
+        <section className="texture-dots relative overflow-hidden rounded-card border border-line bg-surface-1" aria-label="Today's calories and streak">
+          <div className="flex items-center justify-between px-5 pt-4">
+            <p className="eyebrow">Today</p>
+            <Link href="/nutrition" data-press className="press -mr-2 inline-flex min-h-[44px] items-center gap-1 px-2 text-xs font-medium text-fg">
+              Log meal <ChevronRight size={14} strokeWidth={1.5} />
             </Link>
           </div>
-          <div className="mt-5 grid grid-cols-3 gap-2 text-center text-xs text-slate-300">
-            <div>
-              <strong className="flex items-center justify-center gap-1 text-lg text-white">
-                <Flame size={16} className={streak.data ? "text-amber-300" : "text-slate-500"} />
-                {streak.data ?? "–"}
-              </strong>
-              day streak
+          {meals.isPending ? (
+            <div className="flex aspect-[11/8] items-center justify-center">
+              <Skeleton className="h-40 w-40 !rounded-full" />
             </div>
-            <div>
-              <strong className="block text-lg text-white">{totals.calories.toLocaleString()}</strong>kcal eaten
-            </div>
-            <div>
-              <strong className="block text-lg text-white">{todaysWorkout ? formatVolume(todaysWorkout.total_volume_kg, units) : "–"}</strong>lifted today
-            </div>
+          ) : (
+            <HomeHero
+              ratio={ratio}
+              streak={streakDays}
+              center={
+                <div className="glow flex flex-col items-center text-center">
+                  <AnimatedNumber value={totals.calories} className="text-[40px] font-semibold leading-none tracking-tightest text-max" />
+                  <span className="num mt-1 text-[11px] text-muted">/ {targets.calories.toLocaleString()} kcal</span>
+                  <span className={`mt-2 text-xs ${kcalLeft < 0 ? "font-bold text-fg" : "text-fg/80"}`}>
+                    <span className="num">{Math.abs(kcalLeft).toLocaleString()}</span> {kcalLeft < 0 ? "over" : "left"}
+                  </span>
+                </div>
+              }
+              orbLabel={
+                <div className="text-center">
+                  <AnimatedNumber value={streakDays} className="block text-2xl font-semibold leading-none text-max" />
+                  <span className="text-[11px] text-muted">day streak</span>
+                </div>
+              }
+            />
+          )}
+          <div className="space-y-3 border-t border-line px-5 py-4">
+            <MacroBar kind="protein" value={totals.protein_g} target={targets.protein_g} />
+            <MacroBar kind="carbs" value={totals.carbs_g} target={targets.carbs_g} />
+            <MacroBar kind="fat" value={totals.fat_g} target={targets.fat_g} />
+            <MacroBar kind="fibre" value={totals.fibre_g} target={targets.fibre_g} />
           </div>
         </section>
 
-        <div className="grid grid-cols-2 gap-3">
-          <StatCard label="Protein" value={`${totals.protein_g} g`} hint={`of ${targets.protein_g} g`} />
-          <StatCard
-            label="Calories"
-            value={totals.calories.toLocaleString()}
-            hint={totals.calories <= targets.calories ? `${(targets.calories - totals.calories).toLocaleString()} left` : "over target"}
-            accent
-          />
-        </div>
+        <TiltCard>
+          {active.data ? (
+            <WorkoutCard
+              eyebrow="In progress"
+              title={active.data.title}
+              body={`${active.data.exercises.length} exercises · ${completedSetCount(active.data)} sets done`}
+              cta="Resume session"
+              href={`/workout/session?id=${active.data.id}`}
+              strong
+            />
+          ) : todaysWorkout ? (
+            <WorkoutCard
+              eyebrow="Done today"
+              title={todaysWorkout.title}
+              body={`${formatVolume(todaysWorkout.total_volume_kg, units)} · ${formatDuration(workoutDurationSeconds(todaysWorkout))}`}
+              cta="Open workout"
+              href="/workout"
+            />
+          ) : (
+            <WorkoutCard
+              eyebrow="Today's workout"
+              title="Start lifting"
+              body="Log sets, reps, weight and RPE. Volume and PRs update as you go."
+              cta="Open workout"
+              href="/workout"
+              strong
+            />
+          )}
+        </TiltCard>
 
-        {active.data ? (
-          <ActionCard
-            title={`Resume ${active.data.title}`}
-            body={`${active.data.exercises.length} exercises · ${completedSetCount(active.data)} sets done so far.`}
-            cta="Resume session"
-            href={`/workout/session?id=${active.data.id}`}
-          />
-        ) : (
-          <ActionCard
-            title={todaysWorkout ? "Nice work today" : "Start lifting"}
-            body={
-              todaysWorkout
-                ? `${todaysWorkout.title} · ${formatVolume(todaysWorkout.total_volume_kg, units)}. Log another or check your plan.`
-                : "Log sets, reps, weight, and RPE. Volume and PRs update as you finish."
-            }
-            cta="Open workout"
-            href="/workout"
-          />
-        )}
-        <ActionCard
-          title="Log a meal"
-          body="Photo, barcode, or search. Every prediction stores source, version, and confidence."
-          cta="Open nutrition"
-          href="/nutrition"
-        />
+        <Link href="/recovery" data-press className="press flex items-center justify-between rounded-card border border-line bg-surface-1 px-5 py-4">
+          <div>
+            <p className="eyebrow">Recovery</p>
+            <p className="mt-1 text-sm text-fg/80">{score === null ? "Check in to get a score" : recoveryLabel(score)}</p>
+          </div>
+          {recovery.isPending ? (
+            <Skeleton className="h-9 w-12" />
+          ) : (
+            <span className="num text-[32px] font-semibold leading-none text-max">{score ?? "–"}</span>
+          )}
+        </Link>
 
-        <div className="grid grid-cols-4 gap-2">
-          <Link href="/coach" className="flex flex-col items-center gap-1 rounded-2xl border border-white/10 bg-panel p-3 text-xs text-slate-300">
-            <Sparkles size={18} className="text-emerald-300" /> Coach
-          </Link>
-          <Link href="/activity" className="flex flex-col items-center gap-1 rounded-2xl border border-white/10 bg-panel p-3 text-xs text-slate-300">
-            <Activity size={18} className="text-emerald-300" /> Activity
-          </Link>
-          <Link href="/recovery" className="flex flex-col items-center gap-1 rounded-2xl border border-white/10 bg-panel p-3 text-xs text-slate-300">
-            <Moon size={18} className="text-emerald-300" /> Recovery
-          </Link>
-          <Link href="/chat" className="flex flex-col items-center gap-1 rounded-2xl border border-white/10 bg-panel p-3 text-xs text-slate-300">
-            <MessageCircle size={18} className="text-emerald-300" /> Messages
-          </Link>
-        </div>
-
-        {lastWorkout ? (
-          <SectionCard title="Last workout" action={<span className="text-xs text-slate-500">{timeAgo(lastWorkout.started_at)} · {formatDuration(workoutDurationSeconds(lastWorkout))}</span>}>
-            <div className="flex items-center justify-between gap-3">
-              <Link href={`/workout/detail?id=${lastWorkout.id}`} className="min-w-0">
-                <p className="truncate font-semibold text-white">{lastWorkout.title}</p>
-                <p className="mt-1 text-sm text-slate-400">
-                  {lastWorkout.exercises.length} exercises · {formatVolume(lastWorkout.total_volume_kg, units)} volume
-                </p>
-              </Link>
-              <ShareCardButton data={share} filename={`fitos-${lastWorkout.id.slice(0, 8)}.png`} />
-            </div>
-          </SectionCard>
-        ) : null}
-
-        <SectionCard title="Friends" action={<Link href="/social" className="inline-flex items-center text-xs text-emerald-300">Feed <ChevronRight size={14} /></Link>}>
+        <section aria-label="Friend activity">
+          <div className="mb-3 flex items-center justify-between px-1">
+            <h2 className="eyebrow">Friends</h2>
+            <Link href="/social" className="press -mr-2 inline-flex min-h-[44px] items-center px-2 text-xs font-medium text-fg">
+              Feed <ChevronRight size={14} strokeWidth={1.5} />
+            </Link>
+          </div>
           <QueryView
             query={feed}
-            skeleton={<SkeletonList rows={2} height="h-14" />}
+            skeleton={
+              <div className="flex gap-3 overflow-hidden">
+                {[0, 1, 2].map((i) => (
+                  <Skeleton key={i} className="h-[112px] w-[148px] shrink-0 !rounded-card" />
+                ))}
+              </div>
+            }
             isEmpty={() => friendPosts.length === 0}
             empty={
               <EmptyState
                 title="No friend activity yet"
                 body="Follow your training partners to see their sessions here."
                 action={
-                  <Link href="/social" className="flex w-full items-center justify-center rounded-xl bg-accent py-2.5 text-sm font-semibold text-ink">
+                  <Link href="/social" data-press className={`${buttonClass.base} ${buttonClass.outline} w-full`}>
                     Find friends
                   </Link>
                 }
@@ -185,24 +188,88 @@ export default function HomePage() {
             }
           >
             {() => (
-              <div className="space-y-2">
+              <div className="-mx-4 flex snap-x gap-3 overflow-x-auto px-4 pb-1 [scrollbar-width:none]">
                 {friendPosts.map((post) => (
-                  <Link key={post.id} href={post.workout_id ? `/workout/detail?id=${post.workout_id}` : `/social/post?id=${post.id}`} className="flex items-center gap-3 rounded-xl border border-white/5 bg-slate-950/60 p-3">
+                  <Link
+                    key={post.id}
+                    href={post.workout_id ? `/workout/detail?id=${post.workout_id}` : `/social/post?id=${post.id}`}
+                    data-press
+                    className="press flex w-[148px] shrink-0 snap-start flex-col justify-between gap-3 rounded-card border border-line bg-surface-1 p-4"
+                  >
                     <Avatar name={post.display_name} url={post.avatar_url} size="sm" />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm text-white">
-                        <strong>{post.display_name}</strong>{" "}
-                        {post.post_type === "workout" ? `finished ${post.workout_title ?? "a workout"}` : post.post_type === "activity" ? `logged ${formatDistance(post.activity_distance_m ?? 0)}` : "posted"}
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold tracking-tight text-fg">{post.display_name}</p>
+                      <p className="truncate text-xs text-muted">
+                        {post.post_type === "workout" ? post.workout_title ?? "Workout" : post.post_type === "activity" ? formatDistance(post.activity_distance_m ?? 0) : "Posted"} · {timeAgo(post.created_at)}
                       </p>
-                      <p className="text-xs text-slate-500">{timeAgo(post.created_at)}</p>
                     </div>
                   </Link>
                 ))}
               </div>
             )}
           </QueryView>
-        </SectionCard>
+        </section>
+
+        <section className="rounded-card border border-line bg-surface-1 p-5" aria-label="Coach">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="eyebrow">Coach</h2>
+            <span className="num text-[11px] text-muted">&gt;_</span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {["What should I eat tonight?", "How much protein is left?", "Plan tomorrow's session"].map((prompt) => (
+              <Link key={prompt} href="/coach" data-press className="press inline-flex min-h-[44px] items-center rounded-full border border-line px-4 text-xs text-fg">
+                {prompt}
+              </Link>
+            ))}
+          </div>
+        </section>
+
+        {lastWorkout ? (
+          <section className="rounded-card border border-line bg-surface-1 p-5">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="eyebrow">Last workout</h2>
+              <span className="num text-[11px] text-muted">
+                {timeAgo(lastWorkout.started_at)} · {formatDuration(workoutDurationSeconds(lastWorkout))}
+              </span>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <Link href={`/workout/detail?id=${lastWorkout.id}`} className="min-w-0">
+                <p className="truncate text-lg font-semibold tracking-tight text-fg">{lastWorkout.title}</p>
+                <p className="mt-0.5 text-sm text-muted">
+                  {lastWorkout.exercises.length} exercises · <span className="num">{formatVolume(lastWorkout.total_volume_kg, units)}</span>
+                </p>
+              </Link>
+              <ShareCardButton data={share} filename={`fitos-${lastWorkout.id.slice(0, 8)}.png`} />
+            </div>
+          </section>
+        ) : null}
+
+        <div className="grid grid-cols-3 gap-2">
+          {[
+            { href: "/activity", label: "Activity", icon: Activity },
+            { href: "/recovery", label: "Recovery", icon: Moon },
+            { href: "/chat", label: "Messages", icon: MessageCircle },
+          ].map((item) => (
+            <Link key={item.href} href={item.href} data-press className="press flex min-h-[72px] flex-col items-center justify-center gap-1.5 rounded-card border border-line bg-surface-1 text-xs text-fg/80">
+              <item.icon size={18} strokeWidth={1.5} /> {item.label}
+            </Link>
+          ))}
+        </div>
       </div>
     </PullToRefresh>
+  );
+}
+
+function WorkoutCard({ eyebrow, title, body, cta, href, strong = false }: { eyebrow: string; title: string; body: string; cta: string; href: string; strong?: boolean }) {
+  return (
+    <Link href={href} className="texture-lines block rounded-card border border-line bg-surface-1 p-5">
+      <div className="flex items-center justify-between">
+        <p className="eyebrow">{eyebrow}</p>
+        <Dumbbell size={16} strokeWidth={1.5} className="text-muted" />
+      </div>
+      <p className="mt-3 text-2xl font-semibold leading-tight tracking-tighter text-fg">{title}</p>
+      <p className="mt-1 text-sm text-muted">{body}</p>
+      <span className={`${buttonClass.base} ${strong ? buttonClass.primary : buttonClass.outline} mt-5 w-full`}>{cta}</span>
+    </Link>
   );
 }

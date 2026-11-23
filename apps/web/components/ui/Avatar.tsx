@@ -9,7 +9,7 @@ const SIZES = {
 
 export function Avatar({ name, url, size = "md" }: { name: string | null | undefined; url?: string | null; size?: keyof typeof SIZES }) {
   return (
-    <span className={`relative flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-emerald-400/15 font-semibold text-emerald-200 ${SIZES[size]}`}>
+    <span className={`relative flex shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-surface-3 font-semibold tracking-tight text-fg ${SIZES[size]}`}>
       {url ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={url} alt="" className="h-full w-full object-cover" loading="lazy" />
