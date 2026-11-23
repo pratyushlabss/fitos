@@ -118,3 +118,27 @@
 - Leaderboards and other people's streaks count only workouts shared beyond "only me". Stats are hidden on private profiles you do not follow.
 - Messaging a private profile needs a follow in either direction.
 - Images are stored at `{user_id}/{uuid}.webp`, or `.jpg` where iOS cannot encode WebP. Meal-scan photos are not stored at all.
+
+## Phase 5 — iPhone PWA, UX polish and remaining features (2026-11-23)
+
+**PWA**
+- `scripts/generate-icons.mjs` uses sharp to render `icon-192.png`, `icon-512.png`, `icon-maskable-512.png` and `apple-touch-icon.png` from `public/icon.svg`.
+- `app/manifest.ts` is now the only manifest, with a maskable icon. `public/manifest.json` and its link in `app/layout.tsx` are gone.
+- `app/layout.tsx`: `viewportFit: "cover"`, no `maximumScale`, apple-touch-icon set.
+- `app/globals.css`: `touch-action: manipulation`, 16px inputs on iOS so zoom stays enabled for accessibility, no overscroll bounce, `100dvh`.
+- `components/shell/AppShell.tsx`: safe-area padding on top, sides and bottom. The page now scrolls the window, which makes tap-the-status-bar-to-top work and enables pull-to-refresh.
+- `public/sw.js` is hand-written: precached shell, cache-first `/_next/static`, network-first pages with an offline fallback, and no interception of Supabase or any other origin. `components/shell/PwaSupport.tsx` registers it in production and shows the iOS install hint.
+
+**Navigation**
+- `components/shell/BottomNav.tsx` was replaced by design: 5 tabs, Activity and Recovery highlight Home, Chat highlights Social, and an unread-message badge.
+
+**New or rebuilt screens**
+- Social feed, saved posts, leaderboard, discover, notifications, composer and post page.
+- Athlete profile, chat inbox and thread.
+- Profile, profile edit and body data.
+- Supporting components are in `components/social/`. Export is in `lib/data/export.ts`.
+
+**Checks**
+- `npm run build:web` passes. All 25 routes are static.
+- The exported HTML contains the manifest link, apple-touch-icon and `viewport-fit=cover`.
+- A JSX scan found no `<button>` or `<Button>` without a handler.

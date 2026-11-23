@@ -167,3 +167,42 @@ These rows supersede the tables above until the final rewrite after Phase 5. "Wo
 | Food search: USDA and Open Food Facts | Working once deployed | `supabase/functions/food-search` |
 | Barcode lookup with cache | Working once deployed | `supabase/functions/barcode`, `components/nutrition/BarcodeScanner.tsx` |
 | RLS on every table, private storage, Realtime | Working once applied | `database/migrations/007_rls_hardening.sql`, `008_app_features.sql` |
+
+## Final status after Phase 5 (2026-11-23)
+
+This table supersedes every table above. "Working" assumes the manual setup in `DEPLOY.md` is done: env file, migrations 007 and 008, Edge Functions and secrets.
+
+| Area | Feature | Status | Main files |
+|---|---|---|---|
+| Shell | 5-tab nav: Home, Workout, Nutrition, Social, Profile, with an unread badge | Working | `components/shell/BottomNav.tsx` |
+| Shell | Activity, Recovery and Messages reachable from Home cards and Profile › More | Working | `app/page.tsx`, `app/profile/page.tsx` |
+| PWA | One manifest, PNG and maskable icons, apple-touch-icon, `viewport-fit=cover`, safe areas, `100dvh` | Working | `app/manifest.ts`, `app/layout.tsx`, `components/shell/AppShell.tsx`, `app/globals.css` |
+| PWA | Service worker: cached app shell, cache-first static assets, never touches Supabase | Working, production builds only | `public/sw.js`, `components/shell/PwaSupport.tsx` |
+| PWA | iOS "Add to Home Screen" hint, dismissible and remembered | Working | `components/shell/PwaSupport.tsx` |
+| PWA | Double-tap zoom off on controls, no input zoom on iOS, no rubber-band bounce | Working | `app/globals.css` |
+| Auth | Email 6-digit code sign-in, onboarding, sign-out, session kept in standalone mode | Working | `app/login`, `app/onboarding`, `components/auth/*` |
+| Home | Recovery score, streak badge, calories, macros, today's or last workout, friend activity, share card | Working | `app/page.tsx` |
+| Workout | Suggestions with Edit, Replace and Skip; start session or empty workout | Working | `app/workout/page.tsx` |
+| Workout | Live logger: exercises from the catalog or custom, weight, reps, RPE, warm-ups, rest timer | Working | `app/workout/session/page.tsx`, `components/workout/ExercisePicker.tsx` |
+| Workout | Automatic PR detection, history, "View full workout" page, per-exercise chart | Working | `lib/logic/workout.ts`, `app/workout/detail`, `app/workout/history`, `app/workout/exercise` |
+| Workout | Routines: create, edit, reorder, delete, start | Working | `app/workout/routine/page.tsx` |
+| Workout | Muscle recovery map | Not built | It was in AGENTS.md but not in this round's list |
+| Nutrition | Daily log by meal, macro rings against goals, day navigation, edit and delete items | Working | `app/nutrition/page.tsx` |
+| Nutrition | Manual add, Search, Barcode camera scan, Voice, Recent, Photo scan with editable result | Working | `components/nutrition/*`, `supabase/functions/*` |
+| Nutrition | Voice input | Partial | Needs Safari speech recognition. Some iOS versions block it in installed web apps, and the sheet says so. |
+| Activity | Live GPS run, ride and walk: pause, resume, pace, speed, climb, route, crash recovery | Working | `app/activity/page.tsx`, `components/activity/*` |
+| Activity | GPS while the app is in the background | Not possible | iOS pauses web GPS in the background. The screen is kept awake with a wake lock while recording. |
+| Activity | GPX import; FIT import | GPX Working; FIT not built | `lib/logic/geo.ts` |
+| Activity | Apple Health and Health Connect sync | Not possible | Only native apps can read them. The Integrations sheet explains this. |
+| Recovery | Daily check-in, ported scoring engine, seven-day chart, coach advice | Working | `app/recovery/page.tsx`, `lib/logic/recovery.ts` |
+| Body | Weight and measurement log, trend chart, private progress photos | Working | `app/profile/body/page.tsx` |
+| Social | Feed of workout, activity, text and photo posts; likes and saves with optimistic updates; realtime new-post banner | Working | `app/social/page.tsx`, `components/social/*` |
+| Social | Post page with realtime comments; delete own posts and comments | Working | `app/social/post/page.tsx` |
+| Social | Search, Discover, follow and unfollow, follow requests, block and unblock | Working | `app/social/page.tsx`, `app/social/profile/page.tsx` |
+| Social | Profile pages: stats, Overview, Workouts, Activity and Compare tabs | Working | `app/social/profile/page.tsx` |
+| Social | Weekly leaderboard: volume, workouts, streak | Working | `weekly_leaderboard()` in 008 |
+| Social | Notifications: likes, comments, follows and requests | Working, updates every minute, no push | `get_notifications()` in 008 |
+| Messaging | 1:1 conversations, realtime messages, unread counts | Working | `app/chat/page.tsx`, `app/chat/thread/page.tsx` |
+| Profile | Avatar upload, share, link, QR, edit profile, goals, targets and privacy, JSON export, sign-out | Working | `app/profile/page.tsx`, `app/profile/edit/page.tsx`, `lib/data/export.ts` |
+| Security | RLS on every table, private storage folders, `anon` cannot read tables | Working, 68 checks pass locally | `database/migrations/007`, `database/tests/` |
+| Dead buttons | Every button and link from the Phase 1 audit | Fixed | Every `<button>` and `<Button>` in the app has a handler |

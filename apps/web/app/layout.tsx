@@ -12,7 +12,11 @@ const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 export const metadata: Metadata = {
   title: "FitOS",
   description: "Privacy-first fitness operating system",
-  manifest: "/manifest.json",
+  icons: {
+    icon: [{ url: "/icon-192.png", sizes: "192x192", type: "image/png" }],
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180" }],
+  },
+  formatDetection: { telephone: false },
   appleWebApp: {
     capable: true,
     title: "FitOS",
@@ -23,7 +27,7 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
+  viewportFit: "cover",
   themeColor: "#070b14",
 };
 

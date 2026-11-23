@@ -9,10 +9,48 @@
 html,
 body {
   min-height: 100%;
+  min-height: 100dvh;
   background: #070b14;
   color: #f4f7ff;
+  overscroll-behavior-y: none;
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
   font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+
+a,
+button,
+label,
+input,
+select,
+textarea,
+[role="button"] {
+  touch-action: manipulation;
+}
+
+/* iOS zooms into inputs below 16px; keep them at 16px instead of disabling zoom. */
+@supports (-webkit-touch-callout: none) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+@media (display-mode: standalone) {
+  body {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  input,
+  textarea,
+  [contenteditable="true"],
+  p,
+  .selectable {
+    -webkit-user-select: text;
+    user-select: text;
+  }
 }
