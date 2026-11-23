@@ -8,7 +8,7 @@
 
 ## Phase 1 — Intelligence plumbing
 - `ClaudeVisionAdapter` (tool-calling meal ID)
-- Open Food Facts + USDA nutrition adapters
+- Open Food Facts barcode adapter and the FitOS food database (IFCT + saved dishes)
 - Workout and activity persistence via Supabase
 
 ## Phase 2 — Workout engine

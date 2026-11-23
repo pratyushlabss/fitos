@@ -206,3 +206,32 @@ This table supersedes every table above. "Working" assumes the manual setup in `
 | Profile | Avatar upload, share, link, QR, edit profile, goals, targets and privacy, JSON export, sign-out | Working | `app/profile/page.tsx`, `app/profile/edit/page.tsx`, `lib/data/export.ts` |
 | Security | RLS on every table, private storage folders, `anon` cannot read tables | Working, 68 checks pass locally | `database/migrations/007`, `database/tests/` |
 | Dead buttons | Every button and link from the Phase 1 audit | Fixed | Every `<button>` and `<Button>` in the app has a handler |
+
+## Nutrition rebuild: one AI key, Supabase as the food database, RAG (2026-11-23)
+
+This section supersedes every nutrition row above. "Working" assumes migrations 009 and 010 are applied, `nutrition-ai`, `barcode` and `embed-worker` are deployed, and `AI_PROVIDER` and `AI_API_KEY` are set.
+
+| Feature | Status | Main files |
+|---|---|---|
+| Day strip and calendar date picker; kcal and macro rings against goals | Working | `app/nutrition/page.tsx` |
+| Breakfast, Lunch, Dinner, Snacks sections with subtotals and Add | Working | `app/nutrition/page.tsx` |
+| Item actions: edit amount, delete, move to another meal, save as favourite | Working | `app/nutrition/page.tsx`, `lib/data/nutrition.ts` |
+| Meal actions: copy to today, save as favourite meal | Working | `app/nutrition/page.tsx` |
+| Add, Search tab: Recents, Favourites, My foods, All (hybrid vector and trigram search) | Working | `components/nutrition/AddFoodSheet.tsx`, `match_foods` |
+| Add, Describe: text to draft. Database first, semantic cache, then AI with candidates | Working | `supabase/functions/_shared/pipeline.ts` |
+| Add, Photo: 1024 px WebP to private `food-photos`, AI identify, retrieval, one batched breakdown | Working | `pipeline.ts` `analyzePhoto` |
+| Add, Barcode: camera or typed, Open Food Facts, saved as a food with servings, then review | Working | `supabase/functions/barcode` |
+| Add, Manual: create a custom food with macros and serving, saved to My foods | Working | `AddFoodSheet.tsx` `ManualTab` |
+| Review screen: dish to ingredients, editable quantity, unit and grams, live totals, source badges, confidence, one clarifying question | Working | `components/nutrition/DraftReview.tsx` |
+| Dishes saved with ingredient recipes so the same dish never needs AI again | Working | `dish_ingredients`, `private.recompute_dish` |
+| Corrections loop: edits stored; 2 or more corrections of a dish create the user's own version | Working | `confirmDraft` in `pipeline.ts` |
+| Macro snapshot on every logged item; history unaffected by later food edits | Working | `meal_items` |
+| Daily totals kept by trigger | Working | `nutrition_daily`, migration 009 |
+| History: days with kcal and macros against goal; weekly averages chart; tap into any day | Working | `app/nutrition/history/page.tsx` |
+| Coach chat with tools (day summary, history, search, draft log, confirm log, goals) and RAG context | Working | `app/coach/page.tsx`, `supabase/functions/_shared/coach.ts` |
+| Coach memory ("I'm vegetarian") stored with embeddings, top 5 recalled per chat | Working | `coach_memory`, `remember_note` tool |
+| 30 AI calls per user per day; cache hits and database matches are free | Working | `ai_usage`, `consume_ai_call` |
+| Manual logging when AI fails or the limit is hit | Working | Every AI error shows "Log it manually" |
+| IFCT seed import and embedding backfill | Ready, needs `data/ifct2017.csv` | `scripts/import_ifct.ts` |
+| Retrieval eval | Ready to run after deploy; local run recorded in PROGRESS.md | `scripts/rag_eval.ts` |
+| USDA and second-provider code | Removed | `food-scan` and `food-search` functions deleted |

@@ -7,7 +7,8 @@ Follow `.cursorrules` for architecture. This file is the functional specificatio
 - FitOS owns domain models and business logic.
 - `apps/web` is a static export hosted on Cloudflare Pages. It talks to Supabase directly with the anon key; RLS is the security boundary.
 - `apps/web` may import `@supabase/supabase-js`, and only from `apps/web/lib/supabase.ts` and `apps/web/lib/data/`. No other vendor SDK in `apps/web`.
-- Vendor APIs that need secrets (Anthropic, USDA, Open Food Facts) are called only from Supabase Edge Functions in `supabase/functions/`.
+- AI is called only from Supabase Edge Functions through `supabase/functions/_shared/ai.ts`: one provider (Gemini or Anthropic), one key (`AI_PROVIDER`, `AI_API_KEY`, `AI_MODEL`), plain REST.
+- Supabase is the single source of food data. Open Food Facts (no key) is used only for barcode lookup.
 - The service_role key never appears in `apps/web`.
 - Food/prediction records always include `source`, `source_version`, and `confidence`.
 - PostgreSQL tables enable RLS; policies use `auth.uid()`.
@@ -26,8 +27,8 @@ Follow `.cursorrules` for architecture. This file is the functional specificatio
 ### 2. Smart Nutrition & Food AI
 - Photo, barcode, or text search.
 - Barcode via Open Food Facts (no LLM).
-- Meal photos via Claude 3.5 Sonnet → foods, portions (g), calories, macros.
-- USDA FoodData Central fallback for verified nutrients.
+- Text and meal photos via the single configured AI provider → dishes, portions (g), raw-ingredient breakdown, macros.
+- Nutrients come from the FitOS food database (IFCT raw ingredients, saved dishes, user foods); retrieval (pgvector + trigram) runs before any AI call.
 - Persist predictions and `user_corrections` for future local models.
 
 ### 3. Native Cardio & GPS Engine

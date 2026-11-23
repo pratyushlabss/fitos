@@ -2,14 +2,13 @@ import type { Meal, MealType, Profile } from "@fitos/types";
 
 export type MacroTotals = { calories: number; protein_g: number; carbs_g: number; fat_g: number };
 
-export const MEAL_TYPES: MealType[] = ["breakfast", "lunch", "dinner", "snack"];
+export const MEAL_TYPES: MealType[] = ["breakfast", "lunch", "dinner", "snacks"];
 
 export const MEAL_LABELS: Record<MealType, string> = {
   breakfast: "Breakfast",
   lunch: "Lunch",
   dinner: "Dinner",
-  snack: "Snacks",
-  other: "Other",
+  snacks: "Snacks",
 };
 
 export function totalsFor(meals: Meal[]): MacroTotals {
@@ -44,7 +43,7 @@ export function defaultMealType(date = new Date()): MealType {
   if (hour < 11) return "breakfast";
   if (hour < 15) return "lunch";
   if (hour < 21) return "dinner";
-  return "snack";
+  return "snacks";
 }
 
 export function greeting(date = new Date()): string {

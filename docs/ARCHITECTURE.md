@@ -9,7 +9,7 @@ Client UI
   -> domain services and deterministic engines
   -> repositories and provider ports
   -> PostgreSQL / object storage / jobs
-  -> replaceable adapters (USDA, Open Food Facts, AI, Apple Health, Health Connect)
+  -> replaceable adapters (Open Food Facts, AI, Apple Health, Health Connect)
 ```
 
 ## Ownership boundaries

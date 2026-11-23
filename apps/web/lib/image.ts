@@ -38,10 +38,10 @@ function draw(source: ImageBitmap | HTMLImageElement, maxEdge: number): HTMLCanv
   return canvas;
 }
 
-export async function compressImage(file: Blob): Promise<Blob> {
+export async function compressImage(file: Blob, maxEdge = MAX_EDGE): Promise<Blob> {
   const source = await decode(file);
   let best: Blob | null = null;
-  for (const edge of [MAX_EDGE, 1024, 800]) {
+  for (const edge of [maxEdge, Math.min(maxEdge, 1024), 800].filter((value, index, list) => list.indexOf(value) === index)) {
     const canvas = draw(source, edge);
     for (const quality of [0.82, 0.72, 0.62, 0.52]) {
       let blob = await encode(canvas, "image/webp", quality);

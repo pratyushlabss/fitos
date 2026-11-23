@@ -7,7 +7,7 @@ You are building **FitOS**, a privacy-first, unified fitness operating system th
 ## 1. Prime Governing Principles
 1. **Interface-Driven & Provider-Blind**:
    - FitOS owns all core business logic and domain data models.
-   - Every external service (Claude Vision, Open Food Facts, USDA, Apple Health, Health Connect) MUST sit behind an abstract provider/repository interface.
+   - Every external service (the AI provider, Open Food Facts, Apple Health, Health Connect) MUST sit behind an abstract provider/repository interface.
    - The UI (`apps/web`) and Domain services NEVER import third-party vendor SDKs directly.
 2. **Lean & ₹0-First Infrastructure**:
    - Zero Strava API dependency. Outdoor runs/rides rely on client-side native GPS, Apple Health, Android Health Connect, and GPX/FIT file uploads.

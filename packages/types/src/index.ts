@@ -19,7 +19,6 @@ export type FoodItemPrediction = {
   macros: Macronutrients;
   brand: string | null;
   barcode: string | null;
-  usda_fdc_id: string | null;
   provenance: Provenance;
 };
 
@@ -199,7 +198,7 @@ export type PersonalRecord = {
   achieved_at: string;
 };
 
-export type MealType = "breakfast" | "lunch" | "dinner" | "snack" | "other";
+export type MealType = "breakfast" | "lunch" | "dinner" | "snacks";
 
 export type MealItem = {
   id: string;
@@ -210,26 +209,110 @@ export type MealItem = {
   protein_g: number;
   carbs_g: number;
   fat_g: number;
-  source: string;
+  fibre_g: number;
+  quantity: number;
+  unit: ServingUnit;
+  food_id: string | null;
+  source: MealItemSource;
   source_version: string | null;
   confidence: number;
-  prediction_id: string | null;
+  analysis_id: string | null;
 };
 
 export type Meal = {
   id: string;
   meal_type: MealType;
-  meal_date: string;
+  log_date: string;
   meal_items: MealItem[];
 };
 
-export type NewMealItem = Omit<MealItem, "id" | "meal_id">;
+export type MealItemSource = "search" | "text_ai" | "photo_ai" | "barcode" | "manual" | "chat";
+export type ServingUnit = "roti" | "katori" | "ladle" | "piece" | "plate" | "cup" | "tbsp" | "g" | "serving";
+export type FoodSource = "ifct" | "ai" | "user" | "barcode" | "verified";
+export type Per100 = { kcal: number; protein_g: number; carbs_g: number; fat_g: number; fibre_g: number };
+export type Serving = { unit: ServingUnit; grams: number; label: string | null; specific?: boolean };
 
-export type FoodScanResult = {
-  prediction_id: string;
-  prediction: NormalizedFoodPrediction;
-  scans_remaining: number;
+export type FoodHit = {
+  food_id: string;
+  name: string;
+  cuisine: string | null;
+  source: FoodSource;
+  verified: boolean;
+  is_dish: boolean;
+  is_own: boolean;
+  kcal: number | null;
+  protein_g: number | null;
+  carbs_g: number | null;
+  fat_g: number | null;
+  fibre_g: number | null;
+  serving_grams: number | null;
+  servings: Serving[];
+  score?: number;
 };
+
+export type DraftIngredient = { food_id: string | null; name: string; grams: number; per100: Per100; source: FoodSource; notes: string | null };
+
+export type DraftItem = {
+  key: string;
+  food_id: string | null;
+  name: string;
+  is_dish: boolean;
+  cuisine: string | null;
+  quantity: number;
+  unit: ServingUnit;
+  grams: number;
+  per100: Per100;
+  source: FoodSource;
+  own: boolean;
+  confidence: number;
+  match_score: number | null;
+  ingredients: DraftIngredient[];
+  servings: Serving[];
+};
+
+export type FoodDraft = {
+  analysis_id: string | null;
+  input_type: "text" | "photo" | "barcode";
+  input_text: string | null;
+  image_path: string | null;
+  cuisine: string | null;
+  confidence: number;
+  question: string | null;
+  items: DraftItem[];
+  meal_type: MealType | null;
+  date: string | null;
+  cache_hit: boolean;
+  ai_calls: number;
+  candidates_count: number;
+};
+
+export type NutritionDay = {
+  log_date: string;
+  kcal: number;
+  protein_g: number;
+  carbs_g: number;
+  fat_g: number;
+  fibre_g: number;
+  items: number;
+};
+
+export type FavouriteMealItem = {
+  id: string;
+  food_id: string | null;
+  name: string;
+  quantity: number;
+  unit: ServingUnit;
+  grams: number;
+  calories: number;
+  protein_g: number;
+  carbs_g: number;
+  fat_g: number;
+  fibre_g: number;
+};
+
+export type FavouriteMeal = { id: string; name: string; meal_type: MealType | null; favourite_meal_items: FavouriteMealItem[] };
+
+export type CoachMessage = { id: string; role: "user" | "assistant"; content: string; created_at: string };
 
 export type BodyMeasurement = {
   id: string;

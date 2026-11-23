@@ -152,3 +152,78 @@
 - Live state: 52 public tables, all with RLS. 58 global exercises. Buckets: `avatars` is public, `post-media` and `progress-photos` are private. Realtime is on for posts, comments, post_reactions and messages.
 - Through the public API, signed out: tables and RPCs return permission denied, and the `private` helpers are not exposed.
 - Edge Functions are not deployed yet. That needs `npx supabase login`.
+
+## Nutrition rebuild and RAG (2026-11-23)
+
+**Why**
+- One AI provider key, and Supabase as the only food database. USDA and the second provider path are gone.
+- Retrieval runs before any AI call, so repeated foods cost nothing.
+
+**Database** (new files, because 001 to 008 are already applied to the live project)
+- `database/migrations/009_nutrition_pipeline.sql` extends existing tables instead of duplicating them:
+  - `foods` gets `owner_id` (renamed from `user_id`), `cuisine`, `is_dish`, `verified`, `aliases`, trigram and full-text search, and the `ifct|ai|user|barcode|verified` source check.
+  - `food_nutrition` is per 100 g, adds `sat_fat_g`, and holds one row per food.
+  - `meals` gets `log_date`, snacks, and one meal per slot.
+  - `meal_items` gets quantity, unit, fibre and a snapshot, with `analysis_id` (renamed from `prediction_id`).
+  - `food_predictions` is renamed to `food_analyses` with input, provider, status and draft. `user_corrections` gets `analysis_id`, `food_id` and the original payload.
+  - `food_scan_usage` is renamed to `ai_usage`, with `consume_ai_call` at 30 a day.
+  - `coach_messages` from 006 is reused: `content`, `tool_calls`, and an optional session.
+  - The `nutrition_goals` view reads the targets already on `profiles`, which onboarding sets.
+- New tables only where nothing fit: `food_servings` (seeded with roti 40 g, katori 150 g, idli 40 g, dosa 100 g, ladle 120 g, cup rice 160 g and others), `dish_ingredients` (dish nutrition is recomputed as the sum of its ingredients), `nutrition_daily` (trigger-maintained), `favourite_meals` and `favourite_meal_items`. Plus the private `food-photos` bucket.
+- `database/migrations/010_rag.sql`:
+  - pgvector embeddings on `foods` and `food_analyses`, with HNSW indexes.
+  - `match_foods`: hybrid retrieval, security invoker, cuisine filter, and boosts for own, verified and recently logged foods.
+  - `match_analysis_cache` for the semantic cache.
+  - `coach_memory` and `match_coach_memory`.
+  - Embedding-reset triggers, and `foods_to_embed` for the worker.
+- Tests: `database/tests` now has 87 checks covering dish sums, the daily-total triggers, food ownership, goals scoping, `food-photos` and `match_foods` scoping. All pass. A simulated live database with 001 to 008 already applied took 009 and 010 cleanly through `supabase db push`.
+
+**Edge Functions**
+- `_shared/ai.ts`: one interface, `generateJSON(prompt, schema, image?)` and `chat(messages, tools)`, plain REST for Gemini (default) or Anthropic.
+  - Gemini uses its JSON response schema. Anthropic uses structured outputs and `fallbacks: "default"`.
+  - Output is checked by a local schema validator, with one retry that includes the errors, then a friendly error.
+  - The usage meter runs before each provider call.
+- `_shared/pipeline.ts`:
+  - analyze_text: semantic cache, then a database match per segment, then AI with at most 25 retrieved candidates. The AI must pick candidate ids or null. The server rejects matches below the accept score.
+  - Unknown ingredients become `source=ai` foods, and new dishes are saved with their recipes. Everything new is embedded inline.
+  - analyze_photo: one identify call, retrieval per item, then one batched breakdown call for unmatched dishes only. Visible fat becomes its own line.
+  - confirm: writes the snapshot, records corrections, and creates a personal dish copy after 2 or more corrections.
+  - search: no AI quota.
+- `_shared/coach.ts`: the tools above plus `remember_note`. The RAG context includes matching foods, favourites, recent corrections, the last 7 days and the top 5 memories. Drafts need a separate "yes" before `confirm_log`.
+- `nutrition-ai` handles the actions; `barcode` is Open Food Facts only and saves to `foods`; `embed-worker` fills up to 100 missing embeddings per run.
+- Every analysis logs `cache_hit`, `candidates_count`, `ai_calls` and `latency_ms` in `food_analyses`.
+- Deleted: `food-scan`, `food-search` and the USDA adapter. Secrets are now only `AI_PROVIDER`, `AI_API_KEY` and `AI_MODEL`.
+
+**Web**
+- Rebuilt by design:
+  - `app/nutrition/page.tsx`
+  - `lib/data/nutrition.ts`
+  - new `components/nutrition/AddFoodSheet.tsx` and `DraftReview.tsx`
+  - new `app/nutrition/history/page.tsx` and `app/coach/page.tsx`
+  - new `lib/logic/nutrition.ts`
+- Deleted `components/nutrition/FoodSheets.tsx`.
+- Targeted edits: types, snacks meal type, 1024 px photo uploads, export tables, a Coach link on Home, and the nav highlight.
+- `npm run build:web` passes with 27 static routes.
+
+**Thresholds** (`supabase/functions/_shared/pipeline.ts`), tuned on a local eval
+- Setup: the real `match_foods` SQL on Postgres 15 with pgvector, and real `Supabase/gte-small` embeddings computed with transformers.js (the same model as the Edge Runtime).
+- Catalog: 67 foods, made up of 25 IFCT-style ingredients and 42 dishes, drinks and packaged foods, with recipes for 15 dishes.
+- First run: recall@5 1.00, MRR 0.98. But the raw cosine of unrelated foods is 0.81 to 0.87, overlapping true matches at 0.87 to 0.95, and `word_similarity` gives 1.0 to partial words. So "pizza" matched rice at 0.867.
+- Fix: the score is now max(name match, 0.6 × vector rescaled from 0.80–0.95 + 0.4 × name match) plus boosts. Name match is trigram similarity against the full name, the head before the first comma (IFCT style), or an alias. Results are ordered by score, with RRF as the tie-break.
+- Final: recall@5 **1.00**, MRR **1.00** (text-only 0.93). Unrelated probes score 0.15 to 0.24 (pizza, sushi, hamburger, oats). Exact, alias and head-name matches score 1.0. Ambiguous single words score 0.53 to 0.73 (dal, vada, "paneer curry").
+
+| Threshold | Value | Effect |
+|---|---|---|
+| `accept` | **0.55** | Below this, a proposed match is treated as a new food |
+| `strong` | **0.80** | Every segment at or above this skips the AI. "plain dosai" scored 0.79 and correctly still went to the AI. |
+| `photoStrong` | **0.75** | A photo item at or above this uses database values with no breakdown |
+| `cacheSimilarity` | **0.95**, plus a quantity guard | See below |
+
+- Why the cache needs the guard: paraphrases score 0.966 to 0.995 and different dishes 0.889 to 0.935, but "2 roti and dal" against "3 roti and dal" scores 0.982, and "2 idli" against "4 idli" 0.989. A hit therefore also requires the same numbers in both texts.
+- The cache-hit rate needs real usage. `scripts/rag_eval.ts` reports it from `food_analyses` once the functions are deployed.
+
+**Not run**
+- No Docker on this Mac, so the Edge Functions were type-checked and their logic unit-tested (14 checks) but not executed end to end.
+- No AI key was available, so no live AI calls were made.
+- `data/ifct2017.csv` is not in the repo, so the importer was only run in its skip path.
+- Nothing was pushed to the live database.

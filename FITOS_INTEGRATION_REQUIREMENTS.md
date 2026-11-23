@@ -50,17 +50,16 @@ Required features:
 
 - photo, barcode, or text-based search
 - barcode via Open Food Facts (no LLM)
-- meal photo analysis via Claude 3.5 Sonnet
+- meal text and photo analysis via one configured AI provider
 - portion estimation in grams
 - calorie and macro extraction
-- USDA FoodData Central fallback for verified nutrients
+- nutrients from the FitOS food database (IFCT raw ingredients and saved dishes)
 - persistence of predictions and `user_corrections`
 
 Required backend pieces:
 
 - `backend/adapters/claude/vision.py`
 - `backend/adapters/open_food_facts/client.py`
-- `backend/adapters/usda/client.py`
 - `backend/domain/services/nutrition_service.py`
 - `backend/domain/models/food.py`
 - `backend/repositories/food_prediction_repository.py`
@@ -193,33 +192,21 @@ Required security requirements:
 - never expose raw service-role credentials to the frontend
 - keep private/friends/public visibility enforcement in the database layer
 
-### 3.2 Anthropic Claude
-Required for photo meal analysis.
+### 3.2 AI provider
+Required for text and photo meal analysis and the nutrition coach. Exactly one provider.
 
-Required environment variables:
+Supabase secrets:
 
 ```env
-ANTHROPIC_API_KEY=
-ANTHROPIC_VISION_MODEL=claude-3-5-sonnet-20241022
+AI_PROVIDER=gemini   # or anthropic
+AI_API_KEY=
+AI_MODEL=            # optional; gemini-2.5-flash or claude-opus-5-5 by default
 ```
 
 Required adapter boundary:
 
-- `backend/adapters/claude/vision.py`
+- `supabase/functions/_shared/ai.ts`
 - not imported directly in app UI or domain logic
-
-### 3.3 USDA FoodData Central
-Required for trusted nutrient verification.
-
-Required environment variables:
-
-```env
-USDA_FDC_API_KEY=
-```
-
-Required adapter boundary:
-
-- `backend/adapters/usda/client.py`
 
 ### 3.4 Open Food Facts
 Required for barcode lookup.
@@ -369,8 +356,7 @@ Core project files:
 To complete the app according to the FitOS architecture, you need the following final set of integrations and configs:
 
 - Supabase project and migrations
-- Anthropic key
-- USDA key
+- One AI provider key (`AI_PROVIDER`, `AI_API_KEY`, `AI_MODEL`)
 - Open Food Facts configuration
 - frontend API base URL
 - auth + RLS policy enforcement

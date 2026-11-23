@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, ChevronRight, Flame, MessageCircle, Moon } from "lucide-react";
+import { Activity, ChevronRight, Flame, MessageCircle, Moon, Sparkles } from "lucide-react";
 import Link from "next/link";
 
 import { useProfile } from "@/components/auth/AuthProvider";
@@ -138,7 +138,10 @@ export default function HomePage() {
           href="/nutrition"
         />
 
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-4 gap-2">
+          <Link href="/coach" className="flex flex-col items-center gap-1 rounded-2xl border border-white/10 bg-panel p-3 text-xs text-slate-300">
+            <Sparkles size={18} className="text-emerald-300" /> Coach
+          </Link>
           <Link href="/activity" className="flex flex-col items-center gap-1 rounded-2xl border border-white/10 bg-panel p-3 text-xs text-slate-300">
             <Activity size={18} className="text-emerald-300" /> Activity
           </Link>

@@ -1,109 +1,107 @@
 "use client";
 
-import type { MealItem, MealType, NewMealItem } from "@fitos/types";
+import type { Meal, MealItem, MealType, ServingUnit } from "@fitos/types";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight, Utensils } from "lucide-react";
-import { useState } from "react";
+import { CalendarDays, History, MessageCircle, MoreHorizontal, Plus, Utensils } from "lucide-react";
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 
 import { useProfile } from "@/components/auth/AuthProvider";
-import {
-  BarcodeSheet,
-  ManualSheet,
-  RecentSheet,
-  ScanSheet,
-  SearchSheet,
-  type SheetKind,
-  VoiceSheet,
-} from "@/components/nutrition/FoodSheets";
+import { AddFoodSheet } from "@/components/nutrition/AddFoodSheet";
 import { ScreenHeader } from "@/components/shell/ScreenHeader";
 import { Button } from "@/components/ui/Button";
-import { Field, TextInput } from "@/components/ui/Field";
+import { Field, Segmented, SelectInput, TextInput } from "@/components/ui/Field";
 import { MacroRing } from "@/components/ui/MacroRing";
 import { PullToRefresh } from "@/components/ui/PullToRefresh";
 import { SectionCard } from "@/components/ui/SectionCard";
 import { Sheet } from "@/components/ui/Sheet";
-import { StatCard } from "@/components/ui/StatCard";
-import { EmptyState, QueryView, Skeleton } from "@/components/ui/States";
+import { ErrorState, Skeleton } from "@/components/ui/States";
 import { useToast } from "@/components/ui/Toast";
 import { localDayKey } from "@/lib/data/base";
-import { addMealItems, deleteMealItem, getMealsForDay, updateMealItem } from "@/lib/data/nutrition";
+import { copyMeal, deleteMealItem, getMealsForDay, moveMealItem, saveFavourite, updateMealItemAmount } from "@/lib/data/nutrition";
 import { defaultMealType, MEAL_LABELS, MEAL_TYPES, targetsFor, totalsFor } from "@/lib/logic/dashboard";
+import { UNIT_LABEL } from "@/lib/logic/nutrition";
 
 function shiftDay(day: string, delta: number): string {
   const [y, m, d] = day.split("-").map(Number);
   return localDayKey(new Date(y, m - 1, d + delta));
 }
 
-function dayLabel(day: string): string {
-  const today = localDayKey();
-  if (day === today) return "Today";
-  if (day === shiftDay(today, -1)) return "Yesterday";
+function dayParts(day: string) {
   const [y, m, d] = day.split("-").map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+  const date = new Date(y, m - 1, d);
+  return { weekday: date.toLocaleDateString(undefined, { weekday: "narrow" }), date: d, long: date.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" }) };
 }
 
 export default function NutritionPage() {
   const profile = useProfile();
   const toast = useToast();
   const queryClient = useQueryClient();
-  const [day, setDay] = useState(() => localDayKey());
-  const [sheet, setSheet] = useState<SheetKind>(null);
-  const [mealType, setMealType] = useState<MealType>(() => defaultMealType());
-  const [voiceQuery, setVoiceQuery] = useState("");
-  const [editing, setEditing] = useState<MealItem | null>(null);
+  const today = localDayKey();
+  const [day, setDay] = useState(today);
+  const [adding, setAdding] = useState<MealType | null>(null);
+  const [itemMenu, setItemMenu] = useState<MealItem | null>(null);
+  const [mealMenu, setMealMenu] = useState<Meal | null>(null);
+
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get("d");
+    if (requested && /^\d{4}-\d{2}-\d{2}$/.test(requested) && requested <= today) setDay(requested);
+  }, [today]);
 
   const meals = useQuery({ queryKey: ["meals", day], queryFn: () => getMealsForDay(day) });
   const totals = totalsFor(meals.data ?? []);
   const targets = targetsFor(profile);
-  const isToday = day === localDayKey();
+  const strip = useMemo(() => Array.from({ length: 7 }, (_, i) => shiftDay(day === today ? today : day, i - (day === today ? 6 : 3))).filter((d) => d <= today), [day, today]);
 
-  async function add(type: MealType, items: NewMealItem[]) {
-    await addMealItems(day, type, items);
-    await queryClient.invalidateQueries({ queryKey: ["meals", day] });
-    void queryClient.invalidateQueries({ queryKey: ["recent-foods"] });
-    toast(items.length === 1 ? `Added ${items[0].name}` : `Added ${items.length} items`, "success");
+  function refreshDay(target = day) {
+    void queryClient.invalidateQueries({ queryKey: ["meals", target] });
+    void queryClient.invalidateQueries({ queryKey: ["nutrition-history"] });
+    void queryClient.invalidateQueries({ queryKey: ["foods", "recent"] });
   }
-
-  function open(kind: SheetKind, type?: MealType) {
-    setMealType(type ?? (isToday ? defaultMealType() : "lunch"));
-    setSheet(kind);
-  }
-
-  const remove = useMutation({
-    mutationFn: deleteMealItem,
-    onMutate: (id) =>
-      queryClient.setQueryData(["meals", day], (current: typeof meals.data) =>
-        current?.map((meal) => ({ ...meal, meal_items: meal.meal_items.filter((item) => item.id !== id) })),
-      ),
-    onSettled: () => void queryClient.invalidateQueries({ queryKey: ["meals", day] }),
-    onError: (error) => toast(error.message, "error"),
-  });
-
-  const actions: Array<{ kind: SheetKind; label: string; primary?: boolean }> = [
-    { kind: "manual", label: "+ Add food", primary: true },
-    { kind: "scan", label: "📷 Scan food" },
-    { kind: "barcode", label: "▣ Barcode" },
-    { kind: "voice", label: "🎙 Voice" },
-    { kind: "search", label: "🔎 Search" },
-    { kind: "recent", label: "🍳 Recent" },
-  ];
 
   return (
     <PullToRefresh onRefresh={() => meals.refetch()}>
-      <ScreenHeader eyebrow="Nutrition" title="Daily nutrition" subtitle="Calories, macros, barcode, photo and meal logging in one place" />
+      <ScreenHeader eyebrow="Nutrition" title="Daily nutrition" subtitle={dayParts(day).long} />
 
       <div className="space-y-5">
-        <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-slate-900/80 px-2 py-1.5">
-          <button className="rounded-lg p-2 text-slate-300" onClick={() => setDay(shiftDay(day, -1))} aria-label="Previous day">
-            <ChevronLeft size={18} />
-          </button>
-          <span className="text-sm font-medium text-white">{dayLabel(day)}</span>
-          <button className="rounded-lg p-2 text-slate-300 disabled:opacity-30" disabled={isToday} onClick={() => setDay(shiftDay(day, 1))} aria-label="Next day">
-            <ChevronRight size={18} />
-          </button>
+        <div className="flex items-center gap-2">
+          <div className="grid flex-1 grid-cols-7 gap-1">
+            {strip.map((d) => {
+              const parts = dayParts(d);
+              const active = d === day;
+              return (
+                <button
+                  key={d}
+                  onClick={() => setDay(d)}
+                  className={`flex flex-col items-center rounded-xl py-1.5 text-xs ${active ? "bg-accent text-ink" : "bg-slate-900/80 text-slate-300"}`}
+                  aria-label={parts.long}
+                  aria-pressed={active}
+                >
+                  <span className={active ? "text-ink/70" : "text-slate-500"}>{parts.weekday}</span>
+                  <strong>{parts.date}</strong>
+                </button>
+              );
+            })}
+          </div>
+          <label className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-800 text-slate-200" aria-label="Pick a date">
+            <CalendarDays size={18} />
+            <input type="date" max={today} value={day} onChange={(event) => event.target.value && setDay(event.target.value)} className="absolute inset-0 opacity-0" />
+          </label>
         </div>
 
-        <SectionCard title="Macro balance">
+        <SectionCard
+          title={day === today ? "Today" : "This day"}
+          action={
+            <div className="flex items-center gap-3 text-xs">
+              <Link href="/nutrition/history" className="inline-flex items-center gap-1 text-emerald-300">
+                <History size={13} /> History
+              </Link>
+              <Link href="/coach" className="inline-flex items-center gap-1 text-emerald-300">
+                <MessageCircle size={13} /> Coach
+              </Link>
+            </div>
+          }
+        >
           {meals.isPending ? (
             <div className="grid grid-cols-4 gap-2">
               {[0, 1, 2, 3].map((i) => (
@@ -112,183 +110,249 @@ export default function NutritionPage() {
             </div>
           ) : (
             <>
-              <div className="grid grid-cols-4 gap-1">
+              <div className="flex items-end justify-between">
+                <div>
+                  <p className="text-4xl font-semibold text-white">{totals.calories.toLocaleString()}</p>
+                  <p className="text-xs text-slate-400">of {targets.calories.toLocaleString()} kcal</p>
+                </div>
+                <p className={`text-sm ${totals.calories > targets.calories ? "text-amber-300" : "text-emerald-300"}`}>
+                  {totals.calories <= targets.calories ? `${(targets.calories - totals.calories).toLocaleString()} left` : `${(totals.calories - targets.calories).toLocaleString()} over`}
+                </p>
+              </div>
+              <div className="mt-4 grid grid-cols-4 gap-1">
                 <MacroRing label="Kcal" unit="" value={totals.calories} target={targets.calories} />
                 <MacroRing label="Protein" unit="g" value={totals.protein_g} target={targets.protein_g} color="#60a5fa" />
                 <MacroRing label="Carbs" unit="g" value={totals.carbs_g} target={targets.carbs_g} color="#f59e0b" />
                 <MacroRing label="Fat" unit="g" value={totals.fat_g} target={targets.fat_g} color="#f472b6" />
               </div>
-              <div className="mt-4 grid grid-cols-2 gap-3">
-                <StatCard
-                  label="Calories"
-                  value={totals.calories.toLocaleString()}
-                  hint={totals.calories <= targets.calories ? `Remaining ${(targets.calories - totals.calories).toLocaleString()}` : `Over by ${(totals.calories - targets.calories).toLocaleString()}`}
-                  accent
-                />
-                <StatCard label="Protein" value={`${totals.protein_g}g`} hint={`Target ${targets.protein_g}g`} />
-              </div>
             </>
           )}
         </SectionCard>
 
-        <SectionCard title="Actions">
-          <div className="grid grid-cols-2 gap-2">
-            {actions.map((action) => (
-              <Button key={action.kind} variant={action.primary ? "primary" : "secondary"} className="w-full" onClick={() => open(action.kind)}>
-                {action.label}
-              </Button>
-            ))}
-          </div>
-        </SectionCard>
+        {meals.isError ? <ErrorState message={meals.error.message} onRetry={() => void meals.refetch()} /> : null}
 
-        <QueryView
-          query={meals}
-          skeleton={<Skeleton className="h-48 w-full" />}
-          isEmpty={(data) => data.every((meal) => meal.meal_items.length === 0)}
-          empty={
-            <EmptyState
-              icon={<Utensils size={20} />}
-              title={isToday ? "Nothing logged today" : "Nothing logged this day"}
-              body="Scan a photo, scan a barcode or search for a food."
+        {MEAL_TYPES.map((type) => {
+          const meal = meals.data?.find((m) => m.meal_type === type);
+          const items = meal?.meal_items ?? [];
+          const kcal = Math.round(items.reduce((sum, item) => sum + item.calories, 0));
+          return (
+            <SectionCard
+              key={type}
+              title={MEAL_LABELS[type]}
               action={
-                <Button className="w-full" onClick={() => open("scan")}>
-                  📷 Scan your first meal
-                </Button>
+                <div className="flex items-center gap-1">
+                  {items.length ? <span className="mr-1 text-xs text-slate-400">{kcal} kcal</span> : null}
+                  {meal && items.length ? (
+                    <button className="rounded-full p-1.5 text-slate-400 hover:bg-white/5" aria-label={`${MEAL_LABELS[type]} options`} onClick={() => setMealMenu(meal)}>
+                      <MoreHorizontal size={16} />
+                    </button>
+                  ) : null}
+                  <Button variant="secondary" className="gap-1 px-3 py-1.5 text-xs" onClick={() => setAdding(type)}>
+                    <Plus size={13} /> Add
+                  </Button>
+                </div>
               }
-            />
-          }
-        >
-          {(data) => (
-            <div className="space-y-4">
-              {MEAL_TYPES.map((type) => {
-                const items = data.filter((meal) => meal.meal_type === type).flatMap((meal) => meal.meal_items);
-                const kcal = Math.round(items.reduce((sum, item) => sum + item.calories, 0));
-                return (
-                  <SectionCard
-                    key={type}
-                    title={MEAL_LABELS[type]}
-                    action={
-                      <button className="text-xs text-emerald-300" onClick={() => open("search", type)}>
-                        {items.length ? `${kcal} kcal · Add` : "Add"}
-                      </button>
-                    }
-                  >
-                    {items.length === 0 ? (
-                      <p className="text-sm text-slate-500">Nothing yet.</p>
-                    ) : (
-                      <div className="space-y-2">
-                        {items.map((item) => (
-                          <button
-                            key={item.id}
-                            onClick={() => setEditing(item)}
-                            className="flex w-full items-center justify-between rounded-xl border border-white/5 bg-slate-950/60 p-3 text-left"
-                          >
-                            <div className="min-w-0">
-                              <p className="truncate font-medium text-white">{item.name}</p>
-                              <p className="text-xs text-slate-400">
-                                {Math.round(item.protein_g)}P • {Math.round(item.carbs_g)}C • {Math.round(item.fat_g)}F
-                                {item.source === "claude_vision" ? " · AI estimate" : ""}
-                              </p>
-                            </div>
-                            <div className="shrink-0 text-right">
-                              <p className="font-medium text-white">{Math.round(item.calories)} kcal</p>
-                              <p className="text-xs text-slate-400">{Math.round(item.amount_grams)} g</p>
-                            </div>
-                          </button>
-                        ))}
+            >
+              {meals.isPending ? (
+                <Skeleton className="h-12 w-full" />
+              ) : items.length === 0 ? (
+                <button className="flex w-full items-center gap-2 rounded-xl border border-dashed border-white/10 p-3 text-left text-sm text-slate-500" onClick={() => setAdding(type)}>
+                  <Utensils size={15} /> Nothing yet. Tap to add.
+                </button>
+              ) : (
+                <div className="space-y-2">
+                  {items.map((item) => (
+                    <button key={item.id} onClick={() => setItemMenu(item)} className="flex w-full items-center justify-between rounded-xl border border-white/5 bg-slate-950/60 p-3 text-left">
+                      <div className="min-w-0">
+                        <p className="truncate font-medium text-white">{item.name}</p>
+                        <p className="text-xs text-slate-400">
+                          {item.unit === "g" ? `${Math.round(item.amount_grams)} g` : `${item.quantity} ${UNIT_LABEL[item.unit]} · ${Math.round(item.amount_grams)} g`} · {Math.round(item.protein_g)}P {Math.round(item.carbs_g)}C {Math.round(item.fat_g)}F
+                        </p>
                       </div>
-                    )}
-                  </SectionCard>
-                );
-              })}
-              {data.some((meal) => meal.meal_type === "other" && meal.meal_items.length) ? (
-                <p className="text-xs text-slate-500">Some items are filed under Other.</p>
-              ) : null}
-            </div>
-          )}
-        </QueryView>
+                      <p className="shrink-0 font-medium text-white">{Math.round(item.calories)} kcal</p>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </SectionCard>
+          );
+        })}
       </div>
 
-      <ManualSheet open={sheet === "manual"} onClose={() => setSheet(null)} onAdd={add} initialMeal={mealType} />
-      <SearchSheet open={sheet === "search"} onClose={() => setSheet(null)} onAdd={add} initialMeal={mealType} initialQuery={voiceQuery} />
-      <BarcodeSheet open={sheet === "barcode"} onClose={() => setSheet(null)} onAdd={add} initialMeal={mealType} />
-      <ScanSheet open={sheet === "scan"} onClose={() => setSheet(null)} onAdd={add} initialMeal={mealType} />
-      <RecentSheet open={sheet === "recent"} onClose={() => setSheet(null)} onAdd={add} initialMeal={mealType} />
-      <VoiceSheet
-        open={sheet === "voice"}
-        onClose={() => setSheet(null)}
-        onTranscript={(text) => {
-          setVoiceQuery(text);
-          setSheet("search");
+      <AddFoodSheet
+        open={adding !== null}
+        onClose={() => setAdding(null)}
+        day={day}
+        mealType={adding ?? defaultMealType()}
+        onLogged={(message) => {
+          toast(message, "success");
+          refreshDay();
         }}
       />
-      <EditItemSheet
-        item={editing}
-        onClose={() => setEditing(null)}
-        onDelete={(item) => {
-          setEditing(null);
-          remove.mutate(item.id);
+      <ItemSheet
+        item={itemMenu}
+        day={day}
+        onClose={() => setItemMenu(null)}
+        onChanged={(message, otherDay) => {
+          toast(message, "success");
+          refreshDay();
+          if (otherDay && otherDay !== day) refreshDay(otherDay);
         }}
-        onSave={async (item, patch) => {
-          await updateMealItem(item.id, patch);
-          setEditing(null);
-          await queryClient.invalidateQueries({ queryKey: ["meals", day] });
+      />
+      <MealSheet
+        meal={mealMenu}
+        today={today}
+        onClose={() => setMealMenu(null)}
+        onChanged={(message) => {
+          toast(message, "success");
+          refreshDay();
+          refreshDay(today);
         }}
       />
     </PullToRefresh>
   );
 }
 
-function EditItemSheet({
-  item,
-  onClose,
-  onSave,
-  onDelete,
-}: {
-  item: MealItem | null;
-  onClose: () => void;
-  onSave: (item: MealItem, patch: Partial<NewMealItem>) => Promise<void>;
-  onDelete: (item: MealItem) => void;
-}) {
-  const [grams, setGrams] = useState("");
+function ItemSheet({ item, day, onClose, onChanged }: { item: MealItem | null; day: string; onClose: () => void; onChanged: (message: string, otherDay?: string) => void }) {
+  const toast = useToast();
+  const [quantity, setQuantity] = useState("");
+  const [unit, setUnit] = useState<ServingUnit>("g");
+  const [moveTo, setMoveTo] = useState<MealType>("breakfast");
   const [key, setKey] = useState<string | null>(null);
   if (item && key !== item.id) {
     setKey(item.id);
-    setGrams(String(Math.round(item.amount_grams)));
+    setQuantity(String(item.unit === "g" ? Math.round(item.amount_grams) : item.quantity));
+    setUnit(item.unit);
   }
-  const save = useMutation({
-    mutationFn: () => {
-      const next = Number(grams) || 0;
-      const factor = item!.amount_grams > 0 ? next / item!.amount_grams : 1;
-      const r = (v: number) => Math.round(v * factor * 10) / 10;
-      return onSave(item!, {
-        amount_grams: next,
-        calories: r(item!.calories),
-        protein_g: r(item!.protein_g),
-        carbs_g: r(item!.carbs_g),
-        fat_g: r(item!.fat_g),
-      });
+  const perUnit = item && item.unit !== "g" && item.quantity > 0 ? item.amount_grams / item.quantity : 1;
+  const grams = unit === "g" ? Number(quantity) || 0 : (Number(quantity) || 0) * perUnit;
+  const factor = item && item.amount_grams > 0 ? grams / item.amount_grams : 1;
+
+  const run = useMutation({
+    mutationFn: async (action: "save" | "delete" | "move" | "favourite") => {
+      if (!item) return "";
+      if (action === "save") {
+        await updateMealItemAmount(item, Number(quantity) || 0, unit, Math.round(grams * 10) / 10);
+        return "Updated";
+      }
+      if (action === "delete") {
+        await deleteMealItem(item.id);
+        return "Removed";
+      }
+      if (action === "move") {
+        await moveMealItem(item.id, day, moveTo);
+        return `Moved to ${MEAL_LABELS[moveTo]}`;
+      }
+      await saveFavourite(item.name, null, [item]);
+      return "Saved as favourite";
     },
+    onSuccess: (message) => {
+      onClose();
+      onChanged(message);
+    },
+    onError: (error) => toast(error.message, "error"),
   });
+
   return (
     <Sheet open={item !== null} onClose={onClose} title={item?.name ?? "Food"}>
       {item ? (
-        <div className="space-y-3 pb-2">
+        <div className="space-y-4 pb-2">
           <p className="text-sm text-slate-400">
-            {Math.round(item.calories)} kcal · {item.protein_g}P · {item.carbs_g}C · {item.fat_g}F · source {item.source.replace(/_/g, " ")}
+            {Math.round(item.calories * factor)} kcal · {Math.round(item.protein_g * factor)}P {Math.round(item.carbs_g * factor)}C {Math.round(item.fat_g * factor)}F
           </p>
-          <Field label="Amount (g)" hint="Macros scale with the amount.">
-            <TextInput inputMode="decimal" value={grams} onChange={(event) => setGrams(event.target.value.replace(/[^\d.]/g, ""))} />
-          </Field>
-          {save.isError ? <p className="text-sm text-rose-300">{save.error.message}</p> : null}
           <div className="grid grid-cols-2 gap-2">
-            <Button variant="ghost" className="text-rose-300" onClick={() => onDelete(item)}>
-              Delete
-            </Button>
-            <Button disabled={save.isPending || !(Number(grams) > 0)} onClick={() => save.mutate()}>
-              Save
+            <Field label="Amount">
+              <TextInput inputMode="decimal" value={quantity} onChange={(event) => setQuantity(event.target.value.replace(/[^\d.]/g, ""))} />
+            </Field>
+            <Field label="Unit">
+              <SelectInput
+                value={unit}
+                onChange={(event) => {
+                  const next = event.target.value as ServingUnit;
+                  setQuantity(next === "g" ? String(Math.round(grams)) : String(Math.round((grams / perUnit) * 10) / 10));
+                  setUnit(next);
+                }}
+              >
+                {Array.from(new Set<ServingUnit>([item.unit, "g"])).map((u) => (
+                  <option key={u} value={u}>
+                    {UNIT_LABEL[u]}
+                  </option>
+                ))}
+              </SelectInput>
+            </Field>
+          </div>
+          <Button className="w-full" disabled={run.isPending || grams <= 0} onClick={() => run.mutate("save")}>
+            Save amount
+          </Button>
+          <div className="grid grid-cols-[1fr_auto] gap-2">
+            <SelectInput value={moveTo} onChange={(event) => setMoveTo(event.target.value as MealType)} aria-label="Move to meal">
+              {MEAL_TYPES.map((type) => (
+                <option key={type} value={type}>
+                  {MEAL_LABELS[type]}
+                </option>
+              ))}
+            </SelectInput>
+            <Button variant="secondary" disabled={run.isPending} onClick={() => run.mutate("move")}>
+              Move
             </Button>
           </div>
+          <div className="grid grid-cols-2 gap-2">
+            <Button variant="secondary" disabled={run.isPending} onClick={() => run.mutate("favourite")}>
+              Save as favourite
+            </Button>
+            <Button variant="ghost" className="text-rose-300" disabled={run.isPending} onClick={() => run.mutate("delete")}>
+              Delete
+            </Button>
+          </div>
+          <p className="text-xs text-slate-500">Logged values are a snapshot. Editing the food later won&apos;t change this entry.</p>
+        </div>
+      ) : null}
+    </Sheet>
+  );
+}
+
+function MealSheet({ meal, today, onClose, onChanged }: { meal: Meal | null; today: string; onClose: () => void; onChanged: (message: string) => void }) {
+  const toast = useToast();
+  const [name, setName] = useState("");
+  const [target, setTarget] = useState<MealType>("breakfast");
+  const [key, setKey] = useState<string | null>(null);
+  if (meal && key !== meal.id) {
+    setKey(meal.id);
+    setName(`My usual ${MEAL_LABELS[meal.meal_type].toLowerCase()}`);
+    setTarget(meal.meal_type);
+  }
+  const run = useMutation({
+    mutationFn: async (action: "copy" | "favourite") => {
+      if (!meal) return "";
+      if (action === "copy") {
+        await copyMeal(meal, today, target);
+        return `Copied to today's ${MEAL_LABELS[target].toLowerCase()}`;
+      }
+      await saveFavourite(name || MEAL_LABELS[meal.meal_type], meal.meal_type, meal.meal_items);
+      return "Saved as favourite meal";
+    },
+    onSuccess: (message) => {
+      onClose();
+      onChanged(message);
+    },
+    onError: (error) => toast(error.message, "error"),
+  });
+  return (
+    <Sheet open={meal !== null} onClose={onClose} title={meal ? MEAL_LABELS[meal.meal_type] : "Meal"}>
+      {meal ? (
+        <div className="space-y-4 pb-2">
+          <Field label="Copy to today as">
+            <Segmented value={target} onChange={setTarget} options={MEAL_TYPES.map((type) => ({ value: type, label: MEAL_LABELS[type] }))} />
+          </Field>
+          <Button className="w-full" disabled={run.isPending} onClick={() => run.mutate("copy")}>
+            Copy {meal.meal_items.length} item{meal.meal_items.length === 1 ? "" : "s"} to today
+          </Button>
+          <Field label="Favourite name">
+            <TextInput value={name} onChange={(event) => setName(event.target.value.slice(0, 60))} />
+          </Field>
+          <Button variant="secondary" className="w-full" disabled={run.isPending || !name.trim()} onClick={() => run.mutate("favourite")}>
+            Save as favourite meal
+          </Button>
         </div>
       ) : null}
     </Sheet>

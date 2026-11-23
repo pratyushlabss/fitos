@@ -2,11 +2,11 @@ import { compressImage, extensionFor } from "@/lib/image";
 
 import { currentUserId, supabase } from "./base";
 
-export type Bucket = "avatars" | "post-media" | "progress-photos";
+export type Bucket = "avatars" | "post-media" | "progress-photos" | "food-photos";
 
-export async function uploadImage(bucket: Bucket, file: Blob): Promise<string> {
+export async function uploadImage(bucket: Bucket, file: Blob, maxEdge?: number): Promise<string> {
   const userId = await currentUserId();
-  const compressed = await compressImage(file);
+  const compressed = await compressImage(file, maxEdge);
   const path = `${userId}/${crypto.randomUUID()}.${extensionFor(compressed)}`;
   const { error } = await supabase.storage.from(bucket).upload(path, compressed, {
     contentType: compressed.type,

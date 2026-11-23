@@ -22,15 +22,17 @@ Apply migrations in order. `supabase/migrations` is a symlink to this folder, so
 6. `database/migrations/006_recovery_intelligence.sql`
 7. `database/migrations/007_rls_hardening.sql`: RLS on the 002 tables, fixed social and messaging policies, profile trigger, `search_profiles`, storage buckets and policies, Realtime publication, no table access for `anon`
 8. `database/migrations/008_app_features.sql`: profile goals, progress photos, recovery check-ins, food-scan limits, saved posts, feed, leaderboard, notification and messaging RPCs, exercise catalog
+9. `database/migrations/009_nutrition_pipeline.sql`: nutrition rebuilt on Supabase as the single food database. Adds foods for ingredients, dishes and my foods with trigram search, per-100 g `food_nutrition`, `food_servings`, `dish_ingredients`, meals by local `log_date` with item snapshots, `food_analyses` (renamed from food_predictions), corrections, `nutrition_daily` triggers, the `nutrition_goals` view, favourites, `coach_messages`, `ai_usage` (30/day) and the private `food-photos` bucket
+10. `database/migrations/010_rag.sql`: pgvector embeddings (gte-small, 384 dims) on foods and analyses, `match_foods` hybrid retrieval, the semantic cache, `coach_memory`, and embedding-freshness triggers
 
 The web app uses the anon key and the user's JWT, so RLS is the security boundary.
-The service role is used only inside Edge Functions, for the food-scan rate limit
-and the shared barcode cache. Security helpers live in the `private` schema, which
+The service role is used only inside Edge Functions: for the AI usage limit, for
+writing shared foods (AI estimates, dishes, barcode products), and in the embed-worker. Security helpers live in the `private` schema, which
 PostgREST does not expose.
 
 `database/tests/run.sh` applies every migration to a throwaway local Postgres
 (port 55432) with stand-ins for Supabase's `auth` and `storage` schemas, then runs
-68 RLS checks as four test users.
+87 RLS and pipeline checks as four test users.
 
 ## Auth
 

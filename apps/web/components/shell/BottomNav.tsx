@@ -11,7 +11,7 @@ import { listConversations } from "@/lib/data/messaging";
 const tabs = [
   { href: "/", label: "Home", icon: Home, also: ["/activity", "/recovery"] },
   { href: "/workout", label: "Workout", icon: Dumbbell, also: [] },
-  { href: "/nutrition", label: "Nutrition", icon: Salad, also: [] },
+  { href: "/nutrition", label: "Nutrition", icon: Salad, also: ["/coach"] },
   { href: "/social", label: "Social", icon: Users, also: ["/chat"] },
   { href: "/profile", label: "Profile", icon: User, also: [] },
 ] as const;
