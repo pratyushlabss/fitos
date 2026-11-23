@@ -47,9 +47,12 @@ export default function CoachPage() {
     onSuccess: (result) => {
       setLocal((current) => [
         ...current.filter((m) => !m.pending),
-        { id: `a-${Date.now()}`, role: "assistant", content: result.reply, created_at: new Date().toISOString(), drafts: result.drafts },
+        { id: `a-${Date.now()}`, role: "assistant", content: result.reply, created_at: new Date().toISOString(), drafts: result.logged ? [] : result.drafts },
       ]);
-      if (result.drafts.some((d) => d.items.length)) void queryClient.invalidateQueries({ queryKey: ["meals"] });
+      if (result.logged) {
+        void queryClient.invalidateQueries({ queryKey: ["meals"] });
+        void queryClient.invalidateQueries({ queryKey: ["nutrition-history"] });
+      }
       void queryClient.invalidateQueries({ queryKey: ["nutrition-history"] });
     },
     onError: (error, text) => {

@@ -413,7 +413,7 @@ export async function coachHistory(limit = 40): Promise<CoachMessage[]> {
   return ((rows ?? []) as CoachMessage[]).reverse();
 }
 
-export function coachSend(message: string): Promise<{ reply: string; drafts: FoodDraft[] }> {
+export function coachSend(message: string): Promise<{ reply: string; drafts: FoodDraft[]; logged?: number }> {
   return nutritionAi({ action: "chat", message });
 }
 

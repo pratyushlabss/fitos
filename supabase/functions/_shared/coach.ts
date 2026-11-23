@@ -19,18 +19,13 @@ export const TOOLS: ToolDef[] = [
     parameters: { type: "object", properties: { q: { type: "string" } }, required: ["q"] },
   },
   {
-    name: "draft_log",
-    description: "Turn a description of food into a draft. Nothing is saved. Always show the draft and ask the user to confirm.",
+    name: "log_food",
+    description: "Log food the user says they ate or are eating. Saves it straight to their diary and returns what was logged.",
     parameters: {
       type: "object",
       properties: { text: { type: "string" }, meal_type: { type: "string", enum: ["breakfast", "lunch", "dinner", "snacks"] }, date: { type: "string" } },
       required: ["text", "meal_type", "date"],
     },
-  },
-  {
-    name: "confirm_log",
-    description: "Save a draft created earlier. Only call after the user has clearly said yes to that draft in a later message.",
-    parameters: { type: "object", properties: { draft_id: { type: "string" } }, required: ["draft_id"] },
   },
   {
     name: "get_goals",
@@ -44,7 +39,7 @@ export const TOOLS: ToolDef[] = [
   },
 ];
 
-type ToolOutput = { result: unknown; draft?: Draft };
+type ToolOutput = { result: unknown; draft?: Draft; logged?: number };
 
 async function runTool(ctx: Ctx, name: string, args: Record<string, unknown>): Promise<ToolOutput> {
   const user = ctx.user;
@@ -69,26 +64,14 @@ async function runTool(ctx: Ctx, name: string, args: Record<string, unknown>): P
       const results = await searchFoods(ctx, String(args.q ?? ""), null, 5);
       return { result: results.map((r) => ({ name: r.name, per100g: { kcal: r.kcal, protein_g: r.protein_g, carbs_g: r.carbs_g, fat_g: r.fat_g }, servings: r.servings.slice(0, 4), source: r.source })) };
     }
-    case "draft_log": {
+    case "log_food": {
       const mealType = (["breakfast", "lunch", "dinner", "snacks"].includes(String(args.meal_type)) ? args.meal_type : "snacks") as MealType;
       const date = /^\d{4}-\d{2}-\d{2}$/.test(String(args.date)) ? String(args.date) : localDate(ctx.timezone);
       const draft = await analyzeText(ctx, String(args.text ?? ""), { meal_type: mealType, date });
       const items = draft.items.map((item) => ({ name: item.name, grams: item.grams, ...macrosFor(item) }));
-      return { result: { draft_id: draft.analysis_id, meal_type: mealType, date, items, question: draft.question }, draft };
-    }
-    case "confirm_log": {
-      const { data } = await user.from("food_analyses").select("id, draft, status").eq("id", String(args.draft_id ?? "")).eq("user_id", uid).maybeSingle();
-      if (!data) return { result: { error: "Draft not found." } };
-      if (data.status !== "pending") return { result: { error: "That draft was already saved or discarded." } };
-      const draft = data.draft as Draft;
-      const saved = await confirmDraft(ctx, {
-        analysis_id: String(data.id),
-        meal_type: draft.meal_type ?? "snacks",
-        date: draft.date ?? localDate(ctx.timezone),
-        source: "chat",
-        items: draft.items,
-      });
-      return { result: { saved: saved.logged, meal_type: draft.meal_type, date: draft.date } };
+      if (draft.question || !draft.items.length) return { result: { saved: false, question: draft.question ?? "I couldn't recognise that food.", items } };
+      const saved = await confirmDraft(ctx, { analysis_id: draft.analysis_id, meal_type: mealType, date, source: "chat", items: draft.items });
+      return { result: { saved: true, meal_type: mealType, date, items }, logged: saved.logged };
     }
     case "get_goals": {
       const { data } = await user.from("nutrition_goals").select("kcal, protein_g, carbs_g, fat_g").maybeSingle();
@@ -144,7 +127,7 @@ async function contextBlock(ctx: Ctx, message: string, today: string): Promise<s
   return lines.join("\n");
 }
 
-export async function coachReply(ctx: Ctx, message: string): Promise<{ reply: string; drafts: Draft[] }> {
+export async function coachReply(ctx: Ctx, message: string): Promise<{ reply: string; drafts: Draft[]; logged: number }> {
   const uid = ctx.userId!;
   const text = message.trim().slice(0, 1000);
   const today = localDate(ctx.timezone);
@@ -152,7 +135,7 @@ export async function coachReply(ctx: Ctx, message: string): Promise<{ reply: st
   const past: ChatMessage[] = ((history ?? []) as Array<{ role: "user" | "assistant"; content: string }>).reverse().map((m) => ({ role: m.role, content: m.content }) as ChatMessage);
   const system = `You are the FitOS nutrition coach. Be brief and friendly: 1-3 short sentences or a tiny list.
 Use tools for exact numbers; never guess totals. Dates are YYYY-MM-DD in the user's timezone.
-To log food: call draft_log, show the items with calories, and ask "Shall I log this?". Only call confirm_log after the user says yes in a later message.
+When the user says they ate or are eating something, call log_food right away (pick the meal from the time of day if unsaid), then confirm in one line what was logged with calories and protein. If log_food returns a question, ask it instead.
 When the user states a lasting preference about how they eat or cook, call remember_note.
 You can only see this user's data.
 
@@ -161,6 +144,7 @@ ${await contextBlock(ctx, text, today)}`;
 
   const messages: ChatMessage[] = [...past, { role: "user", content: text }];
   const drafts: Draft[] = [];
+  let logged = 0;
   const toolLog: Array<{ name: string; args: unknown }> = [];
   let reply = "";
   for (let round = 0; round < 5; round += 1) {
@@ -179,13 +163,14 @@ ${await contextBlock(ctx, text, today)}`;
         output = { result: { error: error instanceof Error ? error.message : "Tool failed" } };
       }
       if (output.draft) drafts.push(output.draft);
+      logged += output.logged ?? 0;
       messages.push({ role: "tool", toolCallId: call.id, name: call.name, content: JSON.stringify(output.result).slice(0, 6000) });
     }
   }
-  if (!reply) reply = drafts.length ? "Here's the draft. Shall I log this?" : "Sorry, I couldn't finish that. Try asking again.";
+  if (!reply) reply = logged ? "Logged it." : "Sorry, I couldn't finish that. Try asking again.";
   await ctx.user.from("coach_messages").insert([
     { user_id: uid, role: "user", content: text },
     { user_id: uid, role: "assistant", content: reply, tool_calls: toolLog.length ? toolLog : null },
   ]);
-  return { reply, drafts };
+  return { reply, drafts, logged };
 }
