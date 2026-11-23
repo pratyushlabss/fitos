@@ -1,13 +1,14 @@
 // Actions: analyze_text, analyze_photo, confirm, search, chat. Nothing is logged until confirm.
 import { encodeBase64 } from "jsr:@std/encoding@1/base64";
 
-import { AiError, aiInfo } from "../_shared/ai.ts";
+import { AiError, aiInfo, spendLimits } from "../_shared/ai.ts";
 import { authenticate, serviceClient } from "../_shared/auth.ts";
 import { coachReply } from "../_shared/coach.ts";
 import { fail, json, preflight } from "../_shared/cors.ts";
 import { analyzePhoto, analyzeText, confirmDraft, createCtx, type MealType, searchFoods, THRESHOLDS } from "../_shared/pipeline.ts";
 
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+const ADMIN_USER_ID = Deno.env.get("ADMIN_USER_ID") ?? "";
 
 Deno.serve(async (req) => {
   const early = preflight(req);
@@ -34,7 +35,7 @@ Deno.serve(async (req) => {
   const auth = await authenticate(req);
   if (!auth) return fail(req, 401, "unauthorized", "Sign in again.");
   const { data: profile } = await auth.userClient.from("profiles").select("timezone").eq("id", auth.user.id).maybeSingle();
-  const ctx = createCtx(auth.user.id, auth.userClient, admin, profile?.timezone ?? "UTC");
+  const ctx = createCtx(auth.user.id, auth.userClient, admin, profile?.timezone ?? "UTC", action === "chat" ? "coach" : action);
   const meta = {
     meal_type: (["breakfast", "lunch", "dinner", "snacks"].includes(String(body.meal_type)) ? body.meal_type : null) as MealType | null,
     date: /^\d{4}-\d{2}-\d{2}$/.test(String(body.date)) ? String(body.date) : null,
@@ -72,6 +73,21 @@ Deno.serve(async (req) => {
         return json(req, { results: await searchFoods(ctx, String(body.q ?? ""), (body.cuisine as string) ?? null, Number(body.k) || 15) });
       case "chat":
         return json(req, await coachReply(ctx, String(body.message ?? "")));
+      case "admin_usage": {
+        if (!ADMIN_USER_ID || auth.user.id !== ADMIN_USER_ID) return fail(req, 403, "forbidden", "Not available.");
+        const { data, error } = await admin.rpc("ai_spend_summary");
+        if (error) return fail(req, 500, "failed", error.message);
+        return json(req, {
+          ...(data as Record<string, number>),
+          monthly_budget_usd: spendLimits.monthlyBudgetUsd,
+          daily_call_cap: spendLimits.dailyCallCap,
+          user_daily_limit: spendLimits.userDailyLimit,
+          price_in_per_m: spendLimits.priceInPerM,
+          price_out_per_m: spendLimits.priceOutPerM,
+          provider: aiInfo.provider,
+          model: aiInfo.model,
+        });
+      }
       case "status":
         return json(req, { provider: aiInfo.provider, model: aiInfo.model, configured: aiInfo.configured });
       default:

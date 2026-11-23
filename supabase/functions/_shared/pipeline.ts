@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 
-import { AiError, aiInfo, generateJSON, type ImageInput, type JsonSchema, type Meter } from "./ai.ts";
+import { AiError, aiInfo, createGuard, generateJSON, type Guard, type ImageInput, type JsonSchema } from "./ai.ts";
 import { embed, toVector } from "./embed.ts";
 
 // Retrieval thresholds on match_foods.score (0..1). Tuned with scripts/rag_eval.ts; see PROGRESS.md.
@@ -10,7 +10,6 @@ export const THRESHOLDS = {
   photoStrong: 0.75, // photo: item this good -> DB values, no breakdown
   accept: 0.55, // below this a proposed match is rejected and treated as new
 };
-export const DAILY_AI_LIMIT = 30;
 const MAX_CANDIDATES = 25;
 
 export type Unit = "roti" | "katori" | "ladle" | "piece" | "plate" | "cup" | "tbsp" | "g" | "serving";
@@ -73,25 +72,13 @@ export type Candidate = {
   rrf: number;
 };
 
-export type Ctx = { userId: string | null; user: SupabaseClient; admin: SupabaseClient; aiCalls: number; meter: Meter; timezone: string };
+export type Ctx = { userId: string | null; user: SupabaseClient; admin: SupabaseClient; aiCalls: number; guard: Guard; timezone: string };
 
-export function createCtx(userId: string | null, user: SupabaseClient, admin: SupabaseClient, timezone = "UTC"): Ctx {
-  const ctx: Ctx = {
-    userId,
-    user,
-    admin,
-    timezone,
-    aiCalls: 0,
-    meter: async () => {
-      if (!ctx.userId) throw new AiError("limit", "AI calls need a signed-in user.");
-      const { data, error } = await admin.rpc("consume_ai_call", { p_user: ctx.userId, p_limit: DAILY_AI_LIMIT });
-      if (error) throw new AiError("provider", "Could not check your daily AI limit.");
-      if (data === -1) {
-        throw new AiError("limit", `You've used today's ${DAILY_AI_LIMIT} AI requests. Search or log manually; it resets tomorrow.`);
-      }
-      ctx.aiCalls += 1;
-    },
-  };
+export function createCtx(userId: string | null, user: SupabaseClient, admin: SupabaseClient, timezone = "UTC", action = "nutrition"): Ctx {
+  const ctx = { userId, user, admin, timezone, aiCalls: 0 } as Ctx;
+  ctx.guard = createGuard(admin, userId, action, () => {
+    ctx.aiCalls += 1;
+  });
   return ctx;
 }
 
@@ -627,7 +614,7 @@ ${candidateLines(candidates)}
 4. Otherwise break the dish into a typical home-style recipe of raw ingredients with grams, preferring candidate raw ingredients (set their matched_food_id). Give per-100 g macros for each ingredient and for the dish as eaten.
 5. Give confidence 0-1 per dish and overall. Only if overall confidence is below 0.6, ask ONE short clarifying question (for example "Ghee or oil?"); otherwise question is null.
 ${GUIDE}`;
-  const ai = await generateJSON<{ cuisine: string; confidence: number; question: string | null; dishes: AiDish[] }>(prompt, TEXT_SCHEMA, undefined, ctx.meter);
+  const ai = await generateJSON<{ cuisine: string; confidence: number; question: string | null; dishes: AiDish[] }>(prompt, TEXT_SCHEMA, undefined, ctx.guard);
   const created: string[] = [];
   const cuisine = normalizeCuisine(ai.cuisine);
   const items = await resolveDishes(ctx, ai.dishes ?? [], candidates, cuisine, created);
@@ -666,7 +653,7 @@ Estimate each portion in grams from visual cues: plate size, katori, ladle, piec
 ${GUIDE}`,
     PHOTO_SCHEMA,
     image,
-    ctx.meter,
+    ctx.guard,
   );
   const cuisine = normalizeCuisine(first.cuisine);
   const photoItems = (first.items ?? []).filter((item) => item.name && item.grams > 0).slice(0, 12);
@@ -698,7 +685,7 @@ Only if you are unsure about something that changes calories a lot, ask ONE shor
 ${GUIDE}`,
       BREAKDOWN_SCHEMA,
       undefined,
-      ctx.meter,
+      ctx.guard,
     );
     question = second.question;
     const aiDishes: AiDish[] = unmatched.map((i) => {

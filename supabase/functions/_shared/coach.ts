@@ -164,7 +164,7 @@ ${await contextBlock(ctx, text, today)}`;
   const toolLog: Array<{ name: string; args: unknown }> = [];
   let reply = "";
   for (let round = 0; round < 5; round += 1) {
-    const result = await chat(system, messages, TOOLS, ctx.meter);
+    const result = await chat(system, messages, TOOLS, ctx.guard);
     if (!result.toolCalls.length) {
       reply = result.text;
       break;

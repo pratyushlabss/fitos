@@ -227,3 +227,25 @@
 - No AI key was available, so no live AI calls were made.
 - `data/ifct2017.csv` is not in the repo, so the importer was only run in its skip path.
 - Nothing was pushed to the live database.
+
+## AI spend guard (2026-11-23)
+
+**Added**
+- `database/migrations/011_ai_spend_guard.sql`:
+  - `ai_usage` becomes one row per provider request, with `tokens_in`, `tokens_out`, `est_cost_usd`, `provider`, `model`, `action`, `status` and `created_at`. The `day` and `calls` columns are kept, so earlier counters still add up.
+  - `ai_guard_reserve` checks month spend (UTC calendar month) against the budget, today's global calls against the cap, and the user's calls against 30. It reserves a row only if all three pass, under a transaction advisory lock, so parallel requests can't overshoot.
+  - `ai_guard_record` stores tokens and cost. `ai_guard_release` returns the slot of a request that failed. `ai_spend_summary` serves the admin card.
+  - All four functions are service-role only.
+- `supabase/functions/_shared/ai.ts`: every provider request runs inside `guarded()`: reserve, call, read usage, record; release on failure.
+  - Gemini usage comes from `usageMetadata`: prompt tokens in; candidates plus thoughts tokens out.
+  - Anthropic usage comes from `usage`: input plus cache tokens in; output tokens out.
+  - Cost is tokens × `AI_PRICE_*_PER_M` ÷ 1M.
+  - Blocked checks and provider billing errors (402, 403) throw "AI logging paused for today, use search or manual log".
+  - The JSON retry is a real provider request, so it is logged and counted too.
+- `nutrition-ai` `admin_usage` action returns 403 unless the caller is `ADMIN_USER_ID`. Profile shows `AdminUsageCard` only when that call succeeds.
+- Cache hits and database matches never reach `ai.ts`, so they are never counted.
+
+**Verified**
+- `database/tests`: 93 checks pass, including 10 new guard checks: user limit, global cap, budget, record, release, summary, and no access for signed-in users.
+- `deno check` passes for all functions. `npm run build:web` passes.
+- The Gemini key is valid (the models list returned). A real `generateJSON` call reached Google and got **402 "prepayment credits are depleted"**. The guard released the reserved slot as designed. The key was only passed on the command line and is not stored in the repo.

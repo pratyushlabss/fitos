@@ -235,3 +235,13 @@ This section supersedes every nutrition row above. "Working" assumes migrations 
 | IFCT seed import and embedding backfill | Ready, needs `data/ifct2017.csv` | `scripts/import_ifct.ts` |
 | Retrieval eval | Ready to run after deploy; local run recorded in PROGRESS.md | `scripts/rag_eval.ts` |
 | USDA and second-provider code | Removed | `food-scan` and `food-search` functions deleted |
+
+## AI spend guard (2026-11-23)
+
+| Feature | Status | Main files |
+|---|---|---|
+| Per-request token and cost log (`ai_usage`: user, tokens in and out, estimated USD, time) | Working once 011 is applied | `database/migrations/011_ai_spend_guard.sql`, `supabase/functions/_shared/ai.ts` |
+| Hard limits before every AI call: monthly budget, global daily call cap, 30 per user per day | Working | `ai_guard_reserve` (locked), `createGuard` in `ai.ts` |
+| "AI logging paused for today, use search or manual log" when a limit is hit, with manual, search and barcode still available | Working | `PAUSED_MESSAGE` in `ai.ts`, AI error states in `AddFoodSheet.tsx` |
+| Prices and limits set through secrets | Working | `AI_PRICE_IN_PER_M`, `AI_PRICE_OUT_PER_M`, `AI_MONTHLY_BUDGET_USD`, `AI_DAILY_CALL_CAP` |
+| Admin-only usage card on Profile: month spend against budget, calls today against cap | Working once `ADMIN_USER_ID` is set | `components/profile/AdminUsageCard.tsx`, `admin_usage` action |

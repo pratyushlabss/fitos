@@ -23,6 +23,7 @@ import QRCode from "qrcode";
 import { useEffect, useRef, useState } from "react";
 
 import { useAuth, useProfile } from "@/components/auth/AuthProvider";
+import { AdminUsageCard } from "@/components/profile/AdminUsageCard";
 import { ScreenHeader } from "@/components/shell/ScreenHeader";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
@@ -179,6 +180,8 @@ export default function ProfilePage() {
             </div>
           </div>
         </SectionCard>
+
+        <AdminUsageCard />
 
         <SectionCard title="Privacy & sync">
           <div className="space-y-2">

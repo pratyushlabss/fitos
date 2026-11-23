@@ -416,3 +416,26 @@ export async function coachHistory(limit = 40): Promise<CoachMessage[]> {
 export function coachSend(message: string): Promise<{ reply: string; drafts: FoodDraft[] }> {
   return nutritionAi({ action: "chat", message });
 }
+
+// ---------- admin ----------
+
+export type AiUsageSummary = {
+  month_spend_usd: number;
+  month_calls: number;
+  today_calls: number;
+  today_users: number;
+  today_tokens_in: number;
+  today_tokens_out: number;
+  monthly_budget_usd: number;
+  daily_call_cap: number;
+  user_daily_limit: number;
+  provider: string;
+  model: string;
+};
+
+// Returns null for everyone except the ADMIN_USER_ID set on the server.
+export async function aiAdminUsage(): Promise<AiUsageSummary | null> {
+  const { data, error } = await supabase.functions.invoke("nutrition-ai", { body: { action: "admin_usage" } });
+  if (error) return null;
+  return data as AiUsageSummary;
+}

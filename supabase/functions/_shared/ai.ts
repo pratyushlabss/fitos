@@ -1,5 +1,6 @@
 // One AI provider behind one interface. Chosen by the AI_PROVIDER, AI_API_KEY and AI_MODEL secrets.
-// Plain REST, no SDKs.
+// Plain REST, no SDKs. Every request passes the spend guard first and logs tokens and cost after.
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 
 export type JsonSchema = {
   type?: string | string[];
@@ -36,8 +37,85 @@ const TIMEOUT_MS = 60_000;
 
 export const aiInfo = { provider: PROVIDER, model: MODEL, configured: Boolean(API_KEY) };
 
-// Called before every provider request so the per-user daily limit is enforced at the source.
-export type Meter = () => Promise<void>;
+// ---------- spend guard ----------
+
+const envNumber = (name: string, fallback: number) => {
+  const value = Number(Deno.env.get(name));
+  return Number.isFinite(value) && value >= 0 && Deno.env.get(name) !== "" && Deno.env.get(name) !== undefined ? value : fallback;
+};
+
+// USD per 1M tokens. Defaults are list prices for the default models; set the secrets to override.
+const DEFAULT_PRICES = PROVIDER === "anthropic" ? { in: 4, out: 20 } : { in: 0.3, out: 2.5 };
+export const spendLimits = {
+  priceInPerM: envNumber("AI_PRICE_IN_PER_M", DEFAULT_PRICES.in),
+  priceOutPerM: envNumber("AI_PRICE_OUT_PER_M", DEFAULT_PRICES.out),
+  monthlyBudgetUsd: envNumber("AI_MONTHLY_BUDGET_USD", 8),
+  dailyCallCap: Math.floor(envNumber("AI_DAILY_CALL_CAP", 300)),
+  userDailyLimit: 30,
+};
+
+export const PAUSED_MESSAGE = "AI logging paused for today, use search or manual log.";
+
+type Usage = { tokensIn: number; tokensOut: number };
+
+export type Guard = {
+  reserve(): Promise<string>;
+  record(id: string, usage: Usage): Promise<void>;
+  release(id: string): Promise<void>;
+};
+
+export function estimateCost(usage: Usage): number {
+  return Math.round(((usage.tokensIn / 1e6) * spendLimits.priceInPerM + (usage.tokensOut / 1e6) * spendLimits.priceOutPerM) * 1e6) / 1e6;
+}
+
+// Checks run in one locked SQL call: month spend < budget, today's global calls < cap, the user's calls < 30.
+export function createGuard(admin: SupabaseClient, userId: string | null, action: string, onCall?: () => void): Guard {
+  return {
+    async reserve() {
+      if (!userId) throw new AiError("limit", PAUSED_MESSAGE);
+      const { data, error } = await admin.rpc("ai_guard_reserve", {
+        p_user: userId,
+        p_action: action,
+        p_provider: PROVIDER,
+        p_model: MODEL,
+        p_user_daily_limit: spendLimits.userDailyLimit,
+        p_global_daily_cap: spendLimits.dailyCallCap,
+        p_monthly_budget_usd: spendLimits.monthlyBudgetUsd,
+      });
+      if (error) {
+        console.error("ai guard check failed", error.message);
+        throw new AiError("limit", PAUSED_MESSAGE);
+      }
+      const result = data as { allowed: boolean; reason?: string; usage_id?: string };
+      if (!result?.allowed || !result.usage_id) {
+        console.warn(`ai guard blocked: ${result?.reason ?? "unknown"} (user ${userId})`);
+        throw new AiError("limit", PAUSED_MESSAGE);
+      }
+      onCall?.();
+      return result.usage_id;
+    },
+    async record(id, usage) {
+      const { error } = await admin.rpc("ai_guard_record", { p_id: id, p_tokens_in: usage.tokensIn, p_tokens_out: usage.tokensOut, p_cost_usd: estimateCost(usage) });
+      if (error) console.error("ai usage record failed", error.message);
+    },
+    async release(id) {
+      await admin.rpc("ai_guard_release", { p_id: id });
+    },
+  };
+}
+
+function geminiUsage(body: Record<string, unknown>): Usage {
+  const meta = (body.usageMetadata ?? {}) as Record<string, number>;
+  return { tokensIn: Number(meta.promptTokenCount ?? 0), tokensOut: Number(meta.candidatesTokenCount ?? 0) + Number(meta.thoughtsTokenCount ?? 0) };
+}
+
+function anthropicUsage(body: Record<string, unknown>): Usage {
+  const usage = (body.usage ?? {}) as Record<string, number>;
+  return {
+    tokensIn: Number(usage.input_tokens ?? 0) + Number(usage.cache_creation_input_tokens ?? 0) + Number(usage.cache_read_input_tokens ?? 0),
+    tokensOut: Number(usage.output_tokens ?? 0),
+  };
+}
 
 // ---------- validation ----------
 
@@ -115,6 +193,7 @@ async function post(url: string, headers: Record<string, string>, body: unknown)
   const text = await response.text();
   if (!response.ok) {
     console.error(`ai ${PROVIDER} ${response.status}`, text.slice(0, 500));
+    if (response.status === 402 || response.status === 403) throw new AiError("limit", PAUSED_MESSAGE);
     throw new AiError("provider", response.status === 429 ? "The AI service is busy. Try again in a minute." : `AI service error (${response.status}).`);
   }
   return JSON.parse(text);
@@ -124,7 +203,7 @@ async function post(url: string, headers: Record<string, string>, body: unknown)
 
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 
-async function geminiJSON(prompt: string, schema: JsonSchema, image?: ImageInput): Promise<string> {
+async function geminiJSON(prompt: string, schema: JsonSchema, image?: ImageInput): Promise<{ text: string; usage: Usage }> {
   const parts: unknown[] = [{ text: prompt }];
   if (image) parts.unshift({ inlineData: { mimeType: image.mimeType, data: image.base64 } });
   const body = await post(`${GEMINI_BASE}/${MODEL}:generateContent`, { "x-goog-api-key": API_KEY }, {
@@ -132,10 +211,10 @@ async function geminiJSON(prompt: string, schema: JsonSchema, image?: ImageInput
     generationConfig: { responseMimeType: "application/json", responseSchema: toGeminiSchema(schema), temperature: 0.2 },
   });
   const candidate = (body.candidates as Array<{ content?: { parts?: Array<{ text?: string }> } }> | undefined)?.[0];
-  return (candidate?.content?.parts ?? []).map((part) => part.text ?? "").join("");
+  return { text: (candidate?.content?.parts ?? []).map((part) => part.text ?? "").join(""), usage: geminiUsage(body) };
 }
 
-async function geminiChat(system: string, messages: ChatMessage[], tools: ToolDef[]): Promise<ChatResult> {
+async function geminiChat(system: string, messages: ChatMessage[], tools: ToolDef[]): Promise<ChatResult & { usage: Usage }> {
   const contents = messages.map((message) => {
     if (message.role === "user") return { role: "user", parts: [{ text: message.content }] };
     if (message.role === "tool") {
@@ -159,7 +238,7 @@ async function geminiChat(system: string, messages: ChatMessage[], tools: ToolDe
       return { id: `${call.name}-${index}`, name: call.name, args: call.args ?? {} };
     });
   const text = parts.map((part) => (typeof part.text === "string" ? part.text : "")).join("").trim();
-  return { text, toolCalls, raw: { role: "model", parts } };
+  return { text, toolCalls, raw: { role: "model", parts }, usage: geminiUsage(body) };
 }
 
 // ---------- Anthropic ----------
@@ -176,7 +255,7 @@ function anthropicText(body: Record<string, unknown>): string {
   return content.filter((block) => block.type === "text").map((block) => block.text ?? "").join("");
 }
 
-async function anthropicJSON(prompt: string, schema: JsonSchema, image?: ImageInput): Promise<string> {
+async function anthropicJSON(prompt: string, schema: JsonSchema, image?: ImageInput): Promise<{ text: string; usage: Usage }> {
   const content: unknown[] = [{ type: "text", text: prompt }];
   if (image) content.unshift({ type: "image", source: { type: "base64", media_type: image.mimeType, data: image.base64 } });
   const body = await post("https://api.anthropic.com/v1/messages", ANTHROPIC_HEADERS(), {
@@ -186,10 +265,10 @@ async function anthropicJSON(prompt: string, schema: JsonSchema, image?: ImageIn
     output_config: { effort: "medium", format: { type: "json_schema", schema: toStrictSchema(schema) } },
     messages: [{ role: "user", content }],
   });
-  return anthropicText(body);
+  return { text: anthropicText(body), usage: anthropicUsage(body) };
 }
 
-async function anthropicChat(system: string, messages: ChatMessage[], tools: ToolDef[]): Promise<ChatResult> {
+async function anthropicChat(system: string, messages: ChatMessage[], tools: ToolDef[]): Promise<ChatResult & { usage: Usage }> {
   const out: Array<{ role: "user" | "assistant"; content: unknown }> = [];
   for (const message of messages) {
     if (message.role === "user") out.push({ role: "user", content: message.content });
@@ -216,7 +295,7 @@ async function anthropicChat(system: string, messages: ChatMessage[], tools: Too
     .filter((block) => block.type === "tool_use")
     .map((block) => ({ id: String(block.id), name: String(block.name), args: (block.input as Record<string, unknown>) ?? {} }));
   const text = content.filter((block) => block.type === "text").map((block) => String(block.text ?? "")).join("").trim();
-  return { text, toolCalls, raw: content };
+  return { text, toolCalls, raw: content, usage: anthropicUsage(body) };
 }
 
 function safeParse(value: string): unknown {
@@ -229,13 +308,26 @@ function safeParse(value: string): unknown {
 
 // ---------- public interface ----------
 
-export async function generateJSON<T>(prompt: string, schema: JsonSchema, image: ImageInput | undefined, meter: Meter): Promise<T> {
+// Runs one provider request inside the guard: reserve, call, record tokens; release if nothing was billed.
+async function guarded<R extends { usage: Usage }>(guard: Guard, call: () => Promise<R>): Promise<R> {
+  const id = await guard.reserve();
+  let result: R;
+  try {
+    result = await call();
+  } catch (error) {
+    await guard.release(id);
+    throw error;
+  }
+  await guard.record(id, result.usage);
+  return result;
+}
+
+export async function generateJSON<T>(prompt: string, schema: JsonSchema, image: ImageInput | undefined, guard: Guard): Promise<T> {
   if (!API_KEY) throw new AiError("not_configured", "AI is not set up yet. Log it manually for now.");
   let feedback = "";
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    if (attempt === 0) await meter();
     const fullPrompt = feedback ? `${prompt}\n\nYour previous answer was invalid: ${feedback}\nReturn only JSON matching the schema.` : prompt;
-    const text = PROVIDER === "anthropic" ? await anthropicJSON(fullPrompt, schema, image) : await geminiJSON(fullPrompt, schema, image);
+    const { text } = await guarded(guard, () => (PROVIDER === "anthropic" ? anthropicJSON(fullPrompt, schema, image) : geminiJSON(fullPrompt, schema, image)));
     try {
       const parsed = JSON.parse(text.replace(/^```(?:json)?\s*|\s*```$/g, ""));
       const errors = validate(parsed, schema);
@@ -249,8 +341,7 @@ export async function generateJSON<T>(prompt: string, schema: JsonSchema, image:
   throw new AiError("invalid_output", "The AI gave an answer we could not read. Try rephrasing, or log it manually.");
 }
 
-export async function chat(system: string, messages: ChatMessage[], tools: ToolDef[], meter: Meter): Promise<ChatResult> {
+export async function chat(system: string, messages: ChatMessage[], tools: ToolDef[], guard: Guard): Promise<ChatResult> {
   if (!API_KEY) throw new AiError("not_configured", "The coach is not set up yet.");
-  await meter();
-  return PROVIDER === "anthropic" ? anthropicChat(system, messages, tools) : geminiChat(system, messages, tools);
+  return guarded(guard, () => (PROVIDER === "anthropic" ? anthropicChat(system, messages, tools) : geminiChat(system, messages, tools)));
 }
