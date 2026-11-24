@@ -549,13 +549,19 @@ const MODIFIERS = new Set(("a an and the with of some small large medium big hal
   "spicy sweet salted fresh hot cold warm cup cups glass glasses bowl bowls plate plates slice slices piece pieces tsp tbsp teaspoon tablespoon ml gm gms kg gram grams " +
   "serving servings extra less light heavy style my usual today for breakfast lunch dinner snack snacks ate had eaten just side mixed veg nonveg non can cans bottle " +
   "scoop scoops katori katoris roti rotis ladle ladles one two three four five six seven eight nine ten few couple handful little lot also then plus without no " +
-  "medium-sized topped stuffed filled spread on in from at to my our some about approx around").split(/\s+/));
+  "medium-sized topped stuffed filled spread on in from at to my our some about approx around spiced").split(/\s+/));
+
+// Generic dish forms: real words, but they don't say which food. "blorp kebab" is unknown, not "which kebab?".
+const GENERIC = new Set(("pie pies stew stews bake bakes baked kebab kebabs noodle noodles soup soups salad salads cake cakes roll rolls wrap wraps " +
+  "casserole bowl sandwich sandwiches curry curries fry dish dishes snack mix gravy masala").split(/\s+/));
 
 let vocabCache: { at: number; words: Set<string> } | null = null;
 async function vocabulary(ctx: Ctx): Promise<Set<string>> {
   if (!vocabCache || Date.now() - vocabCache.at > 10 * 60_000) {
-    const { data } = await ctx.admin.rpc("food_vocabulary");
-    vocabCache = { at: Date.now(), words: new Set(((data ?? []) as Array<{ word: string }>).map((r) => r.word)) };
+    // One array, not rows: row results are capped at 1,000 by PostgREST (migration 018).
+    const { data, error } = await ctx.admin.rpc("food_vocabulary_words");
+    if (error) throw new Error(`food_vocabulary_words: ${error.message}`);
+    vocabCache = { at: Date.now(), words: new Set((data ?? []) as string[]) };
   }
   if (!ctx.userId) return vocabCache.words;
   const { data } = await ctx.user.from("foods").select("name, aliases").eq("owner_id", ctx.userId).limit(500);
@@ -580,12 +586,44 @@ function lev(a: string, b: string, max: number): number {
   return prev[b.length];
 }
 
+// Typos keep their first letter ("masla", "pngal"); without that, 10k+ food words make most invented words
+// one or two edits from something ("moonberry" -> "goosberry", "krellish" -> "relish").
 export function knownWord(word: string, vocab: Set<string>): boolean {
   if (vocab.has(word) || vocab.has(word.replace(/(es|s)$/, "")) || vocab.has(`${word}s`)) return true;
   if (word.length < 4) return false;
   const max = word.length >= 7 ? 2 : 1;
-  for (const v of vocab) if (Math.abs(v.length - word.length) <= max && lev(word, v, max) <= max) return true;
+  for (const v of vocab) if (v[0] === word[0] && Math.abs(v.length - word.length) <= max && lev(word, v, max) <= max) return true;
   return false;
+}
+
+// Does any word of `names` account for `word`: same word, plural, prefix ("ghe" -> ghee) or a one-letter typo?
+function covers(word: string, names: string[]): boolean {
+  for (const w of names) {
+    if (w === word || w === word.replace(/(es|s)$/, "") || `${w}s` === word) return true;
+    if (word.length >= 3 && w.startsWith(word)) return true;
+    if (word.length >= 4 && w[0] === word[0] && Math.abs(w.length - word.length) <= 1 && lev(word, w, 1) <= 1) return true;
+  }
+  return false;
+}
+
+// Coverage: a segment of two or more food words must be explained by one of its top candidates (name or aliases),
+// or it's a real word plus something we don't know ("unicorn roti") and gets a clarifying question instead of a
+// silent match. Returns the gate result to use, or null when covered.
+export async function coverageGate(ctx: Ctx, segment: string, candidates: Candidate[]): Promise<GateResult | null> {
+  const words = parseSegment(segment).name.toLowerCase().split(/[^a-z]+/).filter((w) => w.length >= 3 && !MODIFIERS.has(w));
+  if (words.length < 2 || !candidates.length) return null;
+  const top = candidates.slice(0, 3);
+  const { data } = await (ctx.userId ? ctx.user : ctx.admin).from("foods").select("id, name, aliases").in("id", top.map((c) => c.food_id));
+  let best: string[] = [];
+  for (const f of (data ?? []) as Array<{ name: string; aliases: string[] | null }>) {
+    const names = `${f.name} ${(f.aliases ?? []).join(" ")}`.toLowerCase().split(/[^a-z]+/).filter(Boolean);
+    const hit = words.filter((w) => covers(w, names));
+    if (hit.length === words.length) return null;
+    if (hit.length > best.length) best = hit;
+  }
+  const unknown = words.filter((w) => !best.includes(w));
+  const specific = best.filter((w) => !GENERIC.has(w));
+  return { status: specific.length ? "clarify" : "no_match", segment, known: best, unknown };
 }
 
 export type GateResult = { status: "ok" | "no_match" | "clarify"; segment: string; known: string[]; unknown: string[] };
@@ -595,7 +633,7 @@ export function gateSegment(segment: string, vocab: Set<string>): GateResult {
   const known = words.filter((w) => knownWord(w, vocab));
   const unknown = words.filter((w) => !known.includes(w));
   if (!words.length || !unknown.length) return { status: "ok", segment, known, unknown };
-  return { status: known.length ? "clarify" : "no_match", segment, known, unknown };
+  return { status: known.some((w) => !GENERIC.has(w)) ? "clarify" : "no_match", segment, known, unknown };
 }
 
 const NO_MATCH_MESSAGE = (names: string[]) =>
@@ -667,6 +705,12 @@ export async function previewMatch(ctx: Ctx, text: string): Promise<{ status: "O
   if (!ok.length) return { status: "NO_MATCH", options: [], candidates: [] };
   const name = parseSegment(ok[0].segment).name;
   const list = await retrieve(ctx, name, await embedOnce(ctx, name), null, 5);
+  const uncovered = await coverageGate(ctx, ok[0].segment, list);
+  if (uncovered?.status === "clarify") {
+    const options = (await retrieve(ctx, uncovered.known.join(" "), null, null, 6)).map((c) => c.name).slice(0, 3);
+    return { status: "CLARIFY", options: [...options, "Something else"], candidates: [] };
+  }
+  if (uncovered) return { status: "NO_MATCH", options: [], candidates: [] };
   const candidates = list.map((c) => ({ food_id: c.food_id, external_id: c.external_id ?? null, name: c.name, tier: c.tier ?? null, score: Math.round(c.score * 1000) / 1000 }));
   return { status: list[0] && list[0].score >= THRESHOLDS.accept ? "OK" : "NO_MATCH", options: [], candidates };
 }
@@ -712,6 +756,12 @@ export async function analyzeText(ctx: Ctx, text: string, meta: { meal_type?: Me
   const segmentEmbeddings: Array<number[] | null> = [];
   for (const p of parsed) segmentEmbeddings.push(await embedOnce(ctx, p.name));
   const perSegment = await Promise.all(parsed.map((p, i) => retrieve(ctx, p.name, segmentEmbeddings[i], null, 10)));
+  const uncovered = (await Promise.all(okSegments.map((seg, i) => coverageGate(ctx, seg, perSegment[i])))).find(Boolean);
+  if (uncovered?.status === "clarify") {
+    const options = (await retrieve(ctx, uncovered.known.join(" "), null, null, 8)).filter((c) => c.kcal !== null).map((c) => c.name).filter((name, i, list) => list.indexOf(name) === i).slice(0, 3);
+    return { ...base, cuisine: null, confidence: 0, question: `Which food did you mean by “${uncovered.segment.trim()}”?`, items: [], notes: [], cache_hit: false, ai_calls: 0, candidates_count: options.length, status: "clarify", options: [...options, "Something else"], unknown: uncovered.unknown, message: null };
+  }
+  if (uncovered) return noMatchDraft(base, [cleanName(parseSegment(uncovered.segment).name)]);
   const whole = await retrieve(ctx, input, fullEmbedding, null, 10);
   const candidates = mergeCandidates([...perSegment, whole]);
   const direct = perSegment.map((list) => list[0]).filter((c) => c && c.score >= THRESHOLDS.strong && c.kcal !== null);

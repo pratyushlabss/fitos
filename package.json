@@ -11,6 +11,7 @@
     "deploy": "npm run build:web && wrangler pages deploy apps/web/out --project-name fitos"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.1",
     "sharp": "^0.34.5",
     "supabase": "^3.2.0",
     "wrangler": "^4.166.0"

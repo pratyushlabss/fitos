@@ -39,3 +39,8 @@ htmlcov/
 # Food DB data (large; re-download fitos_food_db.zip) and local eval state
 fitos_food_db/*.csv
 tests/coach-eval/.progress.json
+
+# Playwright
+test-results/
+playwright-report/
+tests/live-smoke/screens/

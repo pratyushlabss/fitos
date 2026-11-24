@@ -39,7 +39,12 @@ await fetch(`${URL_}/rest/v1/profiles`, { method: "POST", headers: { ...H, Prefe
 const RANKED = ["exact", "alias", "typo", "quantity", "regional_name"];
 type Result = { category: string; query: string; ok: boolean; top1: boolean; detail: string };
 const results: Result[] = [];
-for (const row of rows) {
+// EVAL_PARALLEL queries at a time (default 4); results keep the CSV order.
+const PARALLEL = Number(Deno.env.get("EVAL_PARALLEL") ?? 4);
+const slots: Array<Result | null> = rows.map(() => null);
+let next = 0;
+let done = 0;
+async function runRow(row: Record<string, string>): Promise<Result | null> {
   const query = row.query ?? row.text ?? "";
   const category = (row.kind ?? row.category ?? row.type ?? "").toLowerCase();
   const expectedRaw = row.expected_food_id ?? row.expected ?? "";
@@ -51,13 +56,23 @@ for (const row of rows) {
     const expectedId = expectedRaw ? await uuidFor(expectedRaw) : "";
     const hit = (c: (typeof top)[number]) => c.external_id === expectedRaw || c.food_id === expectedRaw || c.food_id === expectedId;
     const idx = top.findIndex(hit);
-    results.push({ category, query, ok: out.status === "OK" && idx >= 0 && idx < 3, top1: idx === 0, detail: `status ${out.status}; expected ${expectedRaw}; top: ${fmt}` });
+    return ({ category, query, ok: out.status === "OK" && idx >= 0 && idx < 3, top1: idx === 0, detail: `status ${out.status}; expected ${expectedRaw}; top: ${fmt}` });
   } else if (category === "hallucination_trap") {
-    results.push({ category, query, ok: out.status === "NO_MATCH", top1: false, detail: `status ${out.status}; top: ${fmt}` });
+    return ({ category, query, ok: out.status === "NO_MATCH", top1: false, detail: `status ${out.status}; top: ${fmt}` });
   } else if (category === "partial_real_word") {
-    results.push({ category, query, ok: out.status === "CLARIFY", top1: false, detail: `status ${out.status}; options: ${(out.options ?? []).join(", ")}` });
+    return ({ category, query, ok: out.status === "CLARIFY", top1: false, detail: `status ${out.status}; options: ${(out.options ?? []).join(", ")}` });
   }
+
+  return null;
 }
+await Promise.all(Array.from({ length: PARALLEL }, async () => {
+  while (next < rows.length) {
+    const i = next++;
+    slots[i] = await runRow(rows[i]).catch((e) => ({ category: (rows[i].kind ?? "").toLowerCase(), query: rows[i].query ?? "", ok: false, top1: false, detail: `error ${e}` }));
+    if (++done % 50 === 0) console.error(`${done}/${rows.length}`);
+  }
+}));
+for (const r of slots) if (r) results.push(r);
 
 const ranked = results.filter((r) => RANKED.includes(r.category));
 const pct = (a: number, b: number) => (b ? `${Math.round((a / b) * 1000) / 10}%` : "n/a");
