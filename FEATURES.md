@@ -284,3 +284,23 @@ This supersedes the nutrition and AI rows above. Each status was verified on the
 | IFCT seed data | Not loaded | Needs `data/ifct2017.csv`, then `scripts/import_ifct.ts` |
 | Llama text model | Not available on this key | `openai/gpt-oss-120b` is used instead |
 | Local `supabase functions serve` | Not possible here | Needs Docker |
+
+## Macro accuracy, adaptive targets and coach (2026-11-24)
+
+| Feature | Status | Main files |
+|---|---|---|
+| Raw-to-cooked yield conversion for raw database values | Working | `yield_factors`, `applySanity` |
+| Cooking oil as its own adjustable line (none, light, normal, heavy) | Working | `fat_absorption`, `dish_methods`, `DraftReview` |
+| Units to grams with min, typical and max values, plus liquid densities | Working | `portion_ranges.typical_g`, `food_densities` |
+| One deterministic calculation, `compute_item`; full-precision snapshots | Working | migration 013, `confirmDraft` |
+| Atwater check within 10%, caps, fibre ≤ carbs | Working | `checkPer100` |
+| 3-level confidence; "How many rotis?" chips | Working | `applySanity`, `DraftReview` |
+| Per-user dish profile after 2 corrections; dishes promoted to global after 3 users agree | Working | `user_dish_prefs`, `private.promote_dishes` |
+| Micronutrients in the day view, collapsed | Working where food data has them (IFCT not loaded yet) | `meal_items.micros` |
+| BMR × activity targets with safety floors; onboarding asks sex, birth year and activity | Working | `lib/logic/targets.ts` |
+| Adaptive TDEE, weekly, at most ±150 kcal, with a reason | Working (needs ≥ 10 logged days and ≥ 4 weigh-ins) | `private.adapt_targets` |
+| Training-day carbs | Working | `trainingBonus` |
+| Low-intake check-in suggesting a doctor or dietitian | Working | `private.daily_nudges` |
+| Coach: 12 tools, compact context, streaming with tool chips | Working | `_shared/coach.ts`, `_shared/coach_prompt.ts`, `app/coach/page.tsx` |
+| Meal options and day plans with exact macros and "Log this" | Working | `buildOptions`, `planDay` |
+| Weekly review card on Home and in Coach; one nudge a day; nudges toggle and memories list in Settings | Working | `coach_insights`, `CoachSettings` |

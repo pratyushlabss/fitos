@@ -1,27 +1,285 @@
 {
-  "text": [
-    { "input": "2 rotis with 1 katori dal and a katori of rice", "items": ["roti", "dal", "rice"], "kcal": 600 },
-    { "input": "2 masala dosa with sambar and coconut chutney", "items": ["dosa", "sambar", "chutney"], "kcal": 620 },
-    { "input": "3 idli with 1 katori sambar", "items": ["idli", "sambar"], "kcal": 290 },
-    { "input": "1 plate chicken biryani with raita", "items": ["biryani", "raita"], "kcal": 750 },
-    { "input": "2 aloo paratha with curd and pickle", "items": ["paratha", "curd", "pickle"], "kcal": 680 },
-    { "input": "1 katori paneer butter masala and 2 butter naan", "items": ["paneer", "naan"], "kcal": 900 },
-    { "input": "1 bowl poha with peanuts", "items": ["poha"], "kcal": 300 },
-    { "input": "2 vada and 1 cup filter coffee", "items": ["vada", "coffee"], "kcal": 410 },
-    { "input": "1 katori rajma with 1 katori rice", "items": ["rajma", "rice"], "kcal": 420 },
-    { "input": "1 cup masala chai and 2 marie biscuits", "items": ["chai", "biscuit"], "kcal": 160 },
-    { "input": "meat pie with tomato sauce", "items": ["pie", "sauce"], "kcal": 480 },
-    { "input": "flat white and a ham and cheese croissant", "items": ["flat white", "croissant"], "kcal": 520 },
-    { "input": "2 slices of toast with vegemite and butter", "items": ["toast", "vegemite", "butter"], "kcal": 260 },
-    { "input": "smashed avocado on sourdough with a poached egg", "items": ["avocado", "sourdough", "egg"], "kcal": 450 },
-    { "input": "a sausage roll and a can of coke", "items": ["sausage roll", "coke"], "kcal": 520 },
-    { "input": "chicken parmigiana with chips and salad", "items": ["parmigiana", "chips", "salad"], "kcal": 1100 },
-    { "input": "2 scrambled eggs on 2 slices of toast", "items": ["egg", "toast"], "kcal": 420 },
-    { "input": "a bowl of oats with milk and a banana", "items": ["oats", "milk", "banana"], "kcal": 380 },
-    { "input": "grilled chicken breast with 1 cup rice and broccoli", "items": ["chicken", "rice", "broccoli"], "kcal": 540 },
-    { "input": "a cheeseburger with medium fries", "items": ["burger", "fries"], "kcal": 850 }
-  ],
-  "photos": [
-    { "file": "01.jpg", "items": [], "kcal": 0, "note": "Fill in: expected item keywords and approximate kcal for each photo you add" }
-  ]
+ "note": "Reference values: IFCT 2017 home recipes and USDA/AUSNUT for Western items; kcal and protein are for the stated portions.",
+ "text": [
+  {
+   "input": "2 rotis, 1 katori toor dal and 1 katori rice",
+   "items": [
+    "roti",
+    "dal",
+    "rice"
+   ],
+   "kcal": 610,
+   "protein": 22
+  },
+  {
+   "input": "3 idli with 1 katori sambar",
+   "items": [
+    "idli",
+    "sambar"
+   ],
+   "kcal": 281,
+   "protein": 10
+  },
+  {
+   "input": "2 plain dosa with coconut chutney",
+   "items": [
+    "dosa",
+    "chutney"
+   ],
+   "kcal": 470,
+   "protein": 9
+  },
+  {
+   "input": "1 plate veg biryani",
+   "items": [
+    "biryani"
+   ],
+   "kcal": 510,
+   "protein": 12
+  },
+  {
+   "input": "2 aloo paratha with 1 katori curd",
+   "items": [
+    "paratha",
+    "curd"
+   ],
+   "kcal": 610,
+   "protein": 16
+  },
+  {
+   "input": "1 katori paneer butter masala and 2 rotis",
+   "items": [
+    "paneer",
+    "roti"
+   ],
+   "kcal": 583,
+   "protein": 20
+  },
+  {
+   "input": "1 plate poha",
+   "items": [
+    "poha"
+   ],
+   "kcal": 320,
+   "protein": 6
+  },
+  {
+   "input": "2 medu vada with 1 katori sambar",
+   "items": [
+    "vada",
+    "sambar"
+   ],
+   "kcal": 413,
+   "protein": 13
+  },
+  {
+   "input": "1 katori rajma and 1 katori rice",
+   "items": [
+    "rajma",
+    "rice"
+   ],
+   "kcal": 405,
+   "protein": 14
+  },
+  {
+   "input": "1 cup masala chai and 2 marie biscuits",
+   "items": [
+    "chai",
+    "biscuit"
+   ],
+   "kcal": 156,
+   "protein": 4
+  },
+  {
+   "input": "1 katori chicken curry with 2 rotis",
+   "items": [
+    "chicken",
+    "roti"
+   ],
+   "kcal": 478,
+   "protein": 30
+  },
+  {
+   "input": "3 egg omelette with 2 slices of bread",
+   "items": [
+    "omelette",
+    "bread"
+   ],
+   "kcal": 433,
+   "protein": 27
+  },
+  {
+   "input": "1 bowl upma",
+   "items": [
+    "upma"
+   ],
+   "kcal": 340,
+   "protein": 8
+  },
+  {
+   "input": "chole with 2 bhature",
+   "items": [
+    "chole",
+    "bhatur"
+   ],
+   "kcal": 606,
+   "protein": 17
+  },
+  {
+   "input": "1 glass sweet lassi",
+   "items": [
+    "lassi"
+   ],
+   "kcal": 250,
+   "protein": 8
+  },
+  {
+   "input": "meat pie with tomato sauce",
+   "items": [
+    "pie",
+    "sauce"
+   ],
+   "kcal": 462,
+   "protein": 14
+  },
+  {
+   "input": "flat white and a ham and cheese croissant",
+   "items": [
+    "flat white",
+    "croissant"
+   ],
+   "kcal": 470,
+   "protein": 22
+  },
+  {
+   "input": "2 slices of toast with vegemite and butter",
+   "items": [
+    "toast",
+    "vegemite",
+    "butter"
+   ],
+   "kcal": 266,
+   "protein": 7
+  },
+  {
+   "input": "smashed avocado on sourdough with a poached egg",
+   "items": [
+    "avocado",
+    "sourdough",
+    "egg"
+   ],
+   "kcal": 410,
+   "protein": 15
+  },
+  {
+   "input": "a sausage roll and a can of coke",
+   "items": [
+    "sausage roll",
+    "coke"
+   ],
+   "kcal": 548,
+   "protein": 10
+  },
+  {
+   "input": "chicken parmigiana with chips and salad",
+   "items": [
+    "parmigiana",
+    "chips",
+    "salad"
+   ],
+   "kcal": 1030,
+   "protein": 51
+  },
+  {
+   "input": "2 scrambled eggs on 2 slices of toast",
+   "items": [
+    "egg",
+    "toast"
+   ],
+   "kcal": 375,
+   "protein": 19
+  },
+  {
+   "input": "a bowl of oats with milk and a banana",
+   "items": [
+    "oats",
+    "milk",
+    "banana"
+   ],
+   "kcal": 377,
+   "protein": 13
+  },
+  {
+   "input": "150 g grilled chicken breast with 1 cup rice and broccoli",
+   "items": [
+    "chicken",
+    "rice",
+    "broccoli"
+   ],
+   "kcal": 487,
+   "protein": 53
+  },
+  {
+   "input": "a cheeseburger with medium fries",
+   "items": [
+    "burger",
+    "fries"
+   ],
+   "kcal": 640,
+   "protein": 19
+  },
+  {
+   "input": "200 g greek yogurt with 30 g granola and berries",
+   "items": [
+    "yogurt",
+    "granola",
+    "berr"
+   ],
+   "kcal": 359,
+   "protein": 21
+  },
+  {
+   "input": "protein shake with one scoop whey and 300 ml toned milk",
+   "items": [
+    "whey",
+    "milk"
+   ],
+   "kcal": 298,
+   "protein": 33
+  },
+  {
+   "input": "1 katori moong dal khichdi with 1 tsp ghee",
+   "items": [
+    "khichdi",
+    "ghee"
+   ],
+   "kcal": 255,
+   "protein": 7
+  },
+  {
+   "input": "one plate spaghetti bolognese",
+   "items": [
+    "bolognese"
+   ],
+   "kcal": 525,
+   "protein": 25
+  },
+  {
+   "input": "1 katori curd rice",
+   "items": [
+    "curd rice"
+   ],
+   "kcal": 210,
+   "protein": 5
+  }
+ ],
+ "photos": [
+  {
+   "file": "01.jpg",
+   "items": [],
+   "kcal": 0,
+   "protein": 0,
+   "note": "Add images to images/ and fill items, kcal and protein for each."
+  }
+ ]
 }

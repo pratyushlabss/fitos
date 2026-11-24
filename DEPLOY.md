@@ -107,6 +107,19 @@ npx supabase functions deploy embed-worker --no-verify-jwt
 - **Free-tier throughput:** Groq allows about 1,000 output tokens per minute for this model across the whole app. A text meal analysis uses about 750 output tokens, a photo about 100 to 500, and a coach turn about 50. So expect roughly one or two AI meal analyses per minute for everyone combined. Database matches and the semantic cache don't use any of that budget.
 - **Finding your user id:** sign in to the app once, then copy your UID from **Authentication → Users** in Supabase and set it as `ADMIN_USER_ID`.
 
+### Migrations in order
+
+| File | What it adds |
+|---|---|
+| 001–008 | Core schema, social, messaging, recovery, RLS hardening, app features |
+| 009 | Nutrition pipeline: foods, dishes, analyses, corrections, daily totals |
+| 010 | RAG: pgvector, `match_foods`, semantic cache, coach memory |
+| 011 | AI call guard: per-user and global daily caps |
+| 012 | `portion_ranges` for portion sanity checks |
+| 013 | Macro engine: yield, fat absorption, dish methods, densities; micronutrients; `compute_item`; `user_dish_prefs`; profile fields for BMR; `coach_insights`; jobs for adaptive targets, weekly review, nudges and dish promotion; 32 verified staple foods |
+
+Migration 013 schedules its four jobs only when `pg_cron` is already enabled. If you enable it later, re-run the `DO $$ … cron.schedule … $$` block at the end of 013.
+
 ### Schedule the embed-worker (pg_cron + pg_net)
 
 New foods are embedded inline. The worker catches anything missed, such as foods created from the app or edits that clear an embedding.

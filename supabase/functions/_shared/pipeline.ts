@@ -458,6 +458,9 @@ Ingredient grams are raw weights for the whole amount eaten, so they are less th
 Every food needs real per100 numbers; zeros only for water, black coffee or tea, and diet drinks. Respect counts: "2 aloo paratha" is quantity 2.
 Typical values per 100 g as served: chai with milk and sugar 50-70, croissant 400-430, cheeseburger 250-280, fries 280-320, biryani 160-200, aloo paratha 260-300, vada 280-320, oats cooked with milk 100-130, sausage roll 300-350, meat pie 230-270, dal 110-140 kcal, sambar 60-90, plain rice 130, roti 260-300, dosa 170-210, idli 130-150, chicken curry 150-200, paneer curry 200-260.`;
 
+// Dry staples absorb water when cooked; only recipes with these get a water line.
+const DRY = /\b(raw|dry|uncooked|flour|atta|maida|besan|sooji|suji|rava|poha flakes|flakes|lentils?|dal\b(?!.*cooked)|toor|moong|masoor|urad|chana dal|rice(?!,? cooked)(?! cooked)|oats|pasta|noodles|rajma|kidney beans|chickpeas)\b/i;
+
 // "2 rotis" -> "Roti": counts and units belong to the portion, not the food name.
 export function cleanName(name: string): string {
   const stripped = name
@@ -531,6 +534,10 @@ async function resolveDishes(ctx: Ctx, dishes: AiDish[], candidates: Candidate[]
     const servedGrams = n(dish.grams) > 0 ? n(dish.grams) : ingredients.reduce((sum, ing) => sum + ing.grams, 0);
     const rawTotal = ingredients.reduce((sum, ing) => sum + ing.grams, 0);
     if (ingredients.length > 1 && servedGrams > 0 && rawTotal > servedGrams * 1.25) {
+      const k = servedGrams / rawTotal;
+      for (const ing of ingredients) ing.grams = round1(ing.grams * k);
+    } else if (ingredients.length > 1 && servedGrams > 0 && rawTotal < servedGrams * 0.9 && !ingredients.some((ing) => DRY.test(ing.name))) {
+      // Recipe already in cooked/as-served weights: scale it up to the portion instead of adding water.
       const k = servedGrams / rawTotal;
       for (const ing of ingredients) ing.grams = round1(ing.grams * k);
     } else if (ingredients.length > 1 && servedGrams > 0 && rawTotal < servedGrams * 0.9) {
@@ -667,7 +674,13 @@ ${GUIDE}`;
   const ai = await generateJSON<{ cuisine: string; confidence: number; question: string | null; dishes: AiDish[] }>(prompt, TEXT_SCHEMA, undefined, ctx.guard, "text");
   const created: string[] = [];
   const cuisine = normalizeCuisine(ai.cuisine);
-  const resolved = await resolveDishes(ctx, await fillMissing(ctx, cleanDishes(normalizeDishes(ai.dishes ?? [])), candidates), candidates, cuisine, created);
+  const counted = cleanDishes(normalizeDishes(ai.dishes ?? [])).map((dish) => {
+    const seg = parsed.find((p) => p.quantity > 1 && sameFood(p.name, dish.name));
+    if (!seg || n(dish.quantity) === seg.quantity || n(dish.quantity) <= 0) return dish;
+    const k = seg.quantity / n(dish.quantity);
+    return { ...dish, quantity: seg.quantity, grams: round1(n(dish.grams) * k), ingredients: (dish.ingredients ?? []).map((ing) => ({ ...ing, grams: round1(ing.grams * k) })) };
+  });
+  const resolved = await resolveDishes(ctx, await fillMissing(ctx, counted, candidates), candidates, cuisine, created);
   await embedFoods(ctx, created);
   const checked = await sanityCheck(ctx, resolved);
   const confidence = Math.max(0, Math.min(1, n(ai.confidence)));
@@ -872,12 +885,13 @@ export function applySanity(items: DraftItem[], ref: Ref | PortionRange[]): { it
     let oilFood: string | null = null;
     const fats = item.ingredients.filter((ing) => FAT_WORDS.test(ing.name));
     if (fats.length) {
-      oil = fats.reduce((sum, ing) => sum + ing.grams, 0);
+      // Cap recipe fat at 10% of the dish (min 5 g): AI recipes tend to overdo it. The user can still pick "heavy".
+      oil = Math.min(fats.reduce((sum, ing) => sum + ing.grams, 0), Math.max(5, item.grams * 0.1));
       oilName = /ghee/i.test(fats[0].name) ? "Ghee" : /butter/i.test(fats[0].name) ? "Butter" : "Oil";
       oilFood = fats[0].food_id;
       item.ingredients = item.ingredients.filter((ing) => !FAT_WORDS.test(ing.name));
       item.grams = round1(Math.max(1, item.grams - oil));
-    } else if (method && (r.fat[method.method] ?? 0) > 0 && item.source === "ai" && !item.own) {
+    } else if (method && (r.fat[method.method] ?? 0) > 0 && item.source === "ai" && !item.own && item.ingredients.length > 0) {
       oil = ((r.fat[method.method] ?? 0) / 100) * item.grams;
     }
     kept.push(item);

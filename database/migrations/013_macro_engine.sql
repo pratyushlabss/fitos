@@ -97,7 +97,8 @@ INSERT INTO public.portion_ranges (unit, name_pattern, min_g, max_g, typical_g, 
   ('scoop', null, 25, 40, 31, 'one protein-powder scoop'),
   ('tsp', null, 3, 7, 5, 'one teaspoon'),
   ('piece', 'phulka', 20, 35, 28, 'one phulka'),
-  ('glass', 'milk|lassi|buttermilk|chaas|juice|shake', 200, 300, 250, 'one glass of a drink')
+  ('glass', 'milk|lassi|buttermilk|chaas|juice|shake', 200, 300, 250, 'one glass of a drink'),
+  ('piece', 'marie|digestive|rusk|cream biscuit|glucose biscuit', 5, 15, 8, 'one plain biscuit')
 ON CONFLICT (unit, name_pattern) DO NOTHING;
 UPDATE public.portion_ranges SET typical_g = 40 WHERE unit = 'roti' AND name_pattern IS NULL;
 UPDATE public.portion_ranges SET typical_g = 150 WHERE unit = 'katori' AND name_pattern IS NULL;
@@ -444,7 +445,7 @@ BEGIN
     ('Whole wheat bread', 'western', 247, 13.0, 41.0, 3.4, 7.0, 'piece', 32),
     ('Potato, boiled', 'western', 87, 1.9, 20.1, 0.1, 1.8, 'piece', 150)
   ) AS t(name, cuisine, kcal, p, c, f, fibre, unit, grams) LOOP
-    CONTINUE WHEN EXISTS (SELECT 1 FROM public.foods WHERE owner_id IS NULL AND lower(name) = lower(v.name));
+    CONTINUE WHEN EXISTS (SELECT 1 FROM public.foods WHERE owner_id IS NULL AND verified AND lower(name) = lower(v.name));
     INSERT INTO public.foods (name, owner_id, source, verified, is_dish, cuisine, confidence)
       VALUES (v.name, NULL, 'verified', TRUE, FALSE, v.cuisine, 0.95) RETURNING id INTO v_id;
     INSERT INTO public.food_nutrition (food_id, calories, protein_g, carbs_g, fat_g, fiber_g, source, confidence)
