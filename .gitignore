@@ -35,3 +35,7 @@ coverage/
 htmlcov/
 .coverage
 .claude/settings.local.json
+
+# Food DB data (large; re-download fitos_food_db.zip) and local eval state
+fitos_food_db/*.csv
+tests/coach-eval/.progress.json
