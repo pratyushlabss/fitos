@@ -281,3 +281,105 @@ export async function chat(system: string, messages: ChatMessage[], tools: ToolD
   const raw: GroqMessage = { role: "assistant", content: message.content ?? "", ...(message.tool_calls?.length ? { tool_calls: message.tool_calls } : {}) };
   return { text, toolCalls, raw };
 }
+
+// Streaming coach turn: content deltas go to onDelta as they arrive; tool calls are assembled and returned.
+export async function chatStream(system: string, messages: ChatMessage[], tools: ToolDef[], guard: Guard, onDelta: (text: string) => void): Promise<ChatResult> {
+  const model = TEXT_MODEL;
+  if (!API_KEY || !model) throw new AiError("not_configured", "The coach is not set up yet.");
+  const out: GroqMessage[] = [{ role: "system", content: system }];
+  for (const message of messages) {
+    if (message.role === "user") out.push({ role: "user", content: message.content });
+    else if (message.role === "tool") out.push({ role: "tool", tool_call_id: message.toolCallId, content: message.content });
+    else if (message.raw) out.push(message.raw as GroqMessage);
+    else out.push({ role: "assistant", content: message.content });
+  }
+  const id = await guard.reserve(model);
+  let response: Response;
+  try {
+    response = await fetch(ENDPOINT, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${API_KEY}`, "Content-Type": "application/json", "User-Agent": "FitOS/1.0" },
+      body: JSON.stringify({
+        model,
+        messages: out,
+        tools: tools.map((tool) => ({ type: "function", function: { name: tool.name, description: tool.description, parameters: tool.parameters } })),
+        tool_choice: "auto",
+        temperature: 0.4,
+        max_completion_tokens: TEXT_MAX_TOKENS,
+        stream: true,
+        stream_options: { include_usage: true },
+        ...reasoningParams(model, true),
+      }),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+  } catch (error) {
+    await guard.release(id);
+    console.error("groq stream failed", error instanceof Error ? error.message : error);
+    throw new AiError("limit", BUSY_MESSAGE);
+  }
+  if (!response.ok || !response.body) {
+    await guard.release(id);
+    console.error(`groq stream ${response.status}`, (await response.text()).slice(0, 300));
+    if ([402, 403, 429, 498, 500, 502, 503, 504].includes(response.status)) throw new AiError("limit", BUSY_MESSAGE);
+    throw new AiError("provider", `AI service error (${response.status}).`);
+  }
+  let text = "";
+  const calls: Array<{ id: string; name: string; args: string }> = [];
+  const usage: Usage = { tokensIn: 0, tokensOut: 0 };
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = "";
+  let inThink = false;
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += value;
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.startsWith("data: ") || line === "data: [DONE]") continue;
+      let chunk: { choices?: Array<{ delta?: { content?: string; tool_calls?: Array<{ index: number; id?: string; function?: { name?: string; arguments?: string } }> } }>; x_groq?: { usage?: GroqResponse["usage"] }; usage?: GroqResponse["usage"] };
+      try {
+        chunk = JSON.parse(line.slice(6));
+      } catch {
+        continue;
+      }
+      const u = chunk.usage ?? chunk.x_groq?.usage;
+      if (u) {
+        usage.tokensIn = Number(u.prompt_tokens ?? 0);
+        usage.tokensOut = Number(u.completion_tokens ?? 0);
+      }
+      const delta = chunk.choices?.[0]?.delta;
+      if (!delta) continue;
+      if (delta.content) {
+        let piece = delta.content;
+        // Hide any inline <think> blocks.
+        if (inThink || piece.includes("<think>")) {
+          const end = piece.indexOf("</think>");
+          inThink = end < 0;
+          piece = end < 0 ? "" : piece.slice(end + 8);
+        }
+        if (piece) {
+          text += piece;
+          onDelta(piece);
+        }
+      }
+      for (const tc of delta.tool_calls ?? []) {
+        const slot = (calls[tc.index] ??= { id: "", name: "", args: "" });
+        if (tc.id) slot.id = tc.id;
+        if (tc.function?.name) slot.name += tc.function.name;
+        if (tc.function?.arguments) slot.args += tc.function.arguments;
+      }
+    }
+  }
+  await guard.record(id, usage);
+  const toolCalls: ToolCall[] = calls.filter(Boolean).map((c) => {
+    const args = safeParse(c.args || "{}");
+    return { id: c.id, name: c.name, args: typeof args === "object" && args !== null ? (args as Record<string, unknown>) : {} };
+  });
+  const raw: GroqMessage = {
+    role: "assistant",
+    content: text,
+    ...(toolCalls.length ? { tool_calls: calls.filter(Boolean).map((c) => ({ id: c.id, type: "function" as const, function: { name: c.name, arguments: c.args || "{}" } })) } : {}),
+  };
+  return { text: text.trim(), toolCalls, raw };
+}

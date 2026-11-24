@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, ChevronRight, Dumbbell, MessageCircle, Moon } from "lucide-react";
+import { Activity, ChevronRight, Dumbbell, MessageCircle, Moon, X } from "lucide-react";
 import Link from "next/link";
 
 import { useProfile } from "@/components/auth/AuthProvider";
@@ -16,6 +16,7 @@ import { ShareCardButton } from "@/components/ui/ShareCardButton";
 import { buttonClass } from "@/components/ui/Button";
 import { EmptyState, QueryView, Skeleton } from "@/components/ui/States";
 import { localDayKey } from "@/lib/data/base";
+import { dismissInsight, latestInsight } from "@/lib/data/insights";
 import { getMealsForDay } from "@/lib/data/nutrition";
 import { getMyStreak } from "@/lib/data/profile";
 import { listRecoveryDays } from "@/lib/data/recovery";
@@ -39,6 +40,7 @@ export default function HomePage() {
   const meals = useQuery({ queryKey: ["meals", today], queryFn: () => getMealsForDay(today) });
   const active = useQuery({ queryKey: ["workout", "active"], queryFn: getActiveWorkout });
   const recent = useQuery({ queryKey: ["workouts", "recent"], queryFn: () => listWorkouts({ limit: 10 }) });
+  const insight = useQuery({ queryKey: ["insight"], queryFn: latestInsight });
   const feed = useQuery({ queryKey: ["feed", "home"], queryFn: () => getFeed({ limit: 6 }) });
 
   const score = recovery.data?.find((day) => day.day === today)?.recovery_score ?? null;
@@ -77,6 +79,20 @@ export default function HomePage() {
         subtitle=""
       />
       <div className="space-y-4">
+        {insight.data ? (
+          <section className="rounded-card border border-fg/60 bg-surface-1 p-5" aria-label={insight.data.title}>
+            <div className="flex items-start justify-between gap-3">
+              <p className="eyebrow !text-fg">{insight.data.title}</p>
+              <button className="press -mr-2 -mt-2 flex h-11 w-11 items-center justify-center text-muted" aria-label="Dismiss" onClick={() => void dismissInsight(insight.data!.id).then(() => insight.refetch())}>
+                <X size={16} strokeWidth={1.5} />
+              </button>
+            </div>
+            <p className="mt-1 text-sm leading-6 text-fg/90">{insight.data.body}</p>
+            <Link href="/coach" data-press className="press mt-3 inline-flex min-h-[44px] items-center gap-1 text-xs font-medium text-fg">
+              Talk to coach <ChevronRight size={14} strokeWidth={1.5} />
+            </Link>
+          </section>
+        ) : null}
         <section className="texture-dots relative overflow-hidden rounded-card border border-line bg-surface-1" aria-label="Today's calories and streak">
           <div className="flex items-center justify-between px-5 pt-4">
             <p className="eyebrow">Today</p>

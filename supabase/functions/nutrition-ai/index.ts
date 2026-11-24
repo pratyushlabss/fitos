@@ -4,7 +4,7 @@ import { encodeBase64 } from "jsr:@std/encoding@1/base64";
 import { AiError, aiInfo, callLimits } from "../_shared/ai.ts";
 import { authenticate, serviceClient } from "../_shared/auth.ts";
 import { coachReply } from "../_shared/coach.ts";
-import { fail, json, preflight } from "../_shared/cors.ts";
+import { corsHeaders, fail, json, preflight } from "../_shared/cors.ts";
 import { analyzePhoto, analyzeText, confirmDraft, createCtx, type MealType, searchFoods, THRESHOLDS } from "../_shared/pipeline.ts";
 
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -73,6 +73,23 @@ Deno.serve(async (req) => {
         return json(req, { results: await searchFoods(ctx, String(body.q ?? ""), (body.cuisine as string) ?? null, Number(body.k) || 15) });
       case "chat":
         return json(req, await coachReply(ctx, String(body.message ?? "")));
+      case "chat_stream": {
+        // Server-sent events: {type:"tool"|"delta"} while working, then {type:"done", ...result} or {type:"error"}.
+        const encoder = new TextEncoder();
+        const stream = new ReadableStream({
+          async start(controller) {
+            const send = (event: unknown) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+            try {
+              const result = await coachReply(ctx, String(body.message ?? ""), send);
+              send({ type: "done", ...result });
+            } catch (error) {
+              send({ type: "error", message: error instanceof Error ? error.message : "Coach failed." });
+            }
+            controller.close();
+          },
+        });
+        return new Response(stream, { headers: { ...corsHeaders(req), "Content-Type": "text/event-stream", "Cache-Control": "no-cache" } });
+      }
       case "admin_usage": {
         if (!ADMIN_USER_ID || auth.user.id !== ADMIN_USER_ID) return fail(req, 403, "forbidden", "Not available.");
         const { data, error } = await admin.rpc("ai_spend_summary");

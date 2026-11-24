@@ -18,6 +18,7 @@ import { macrosFor, round1 } from "@/lib/logic/nutrition";
 
 import { currentUserId, num, numOrNull, type Row, supabase, unwrap } from "./base";
 import { uploadImage } from "./storage";
+import { functionsUrl, supabaseAnonKey } from "@/lib/supabase";
 
 // ---------- meals and items ----------
 
@@ -38,6 +39,8 @@ function toItem(row: Row): MealItem {
     source: (row.source as MealItemSource) ?? "manual",
     source_version: (row.source_version as string | null) ?? null,
     confidence: numOrNull(row.confidence) ?? 1,
+    micros: (row.micros as Record<string, number> | null) ?? {},
+    oil_level: (row.oil_level as MealItem["oil_level"]) ?? null,
     analysis_id: (row.analysis_id as string | null) ?? null,
   };
 }
@@ -414,7 +417,56 @@ export async function coachHistory(limit = 40): Promise<CoachMessage[]> {
   return ((rows ?? []) as CoachMessage[]).reverse();
 }
 
-export function coachSend(message: string): Promise<{ reply: string; drafts: FoodDraft[]; logged?: number }> {
+export type CoachOption = { title: string; why: string; items: DraftItem[]; totals: { kcal: number; protein_g: number; carbs_g: number; fat_g: number } };
+export type CoachCard = {
+  kind: "options" | "plan" | "review";
+  title: string;
+  options?: CoachOption[];
+  plan?: { meals: Array<{ meal: MealType; items: DraftItem[]; totals: CoachOption["totals"] }>; totals: CoachOption["totals"] };
+  body?: string;
+};
+export type CoachResult = { reply: string; drafts: FoodDraft[]; cards?: CoachCard[]; tools_used?: string[]; logged?: number };
+export type CoachEvent = { type: "tool"; name: string; label: string } | { type: "delta"; text: string };
+
+// Streams a coach turn (server-sent events): tool chips and text deltas while it works, then the full result.
+export async function coachStream(message: string, onEvent: (event: CoachEvent) => void): Promise<CoachResult> {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) throw new Error("Sign in again.");
+  let response: Response;
+  try {
+    response = await fetch(functionsUrl("nutrition-ai"), {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, apikey: supabaseAnonKey, "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "chat_stream", message }),
+    });
+  } catch {
+    throw new Error("Can't reach FitOS AI right now. Check your connection, or log it manually.");
+  }
+  if (!response.ok || !response.body) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.message ?? "Coach failed.");
+  }
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += value;
+    const parts = buffer.split("\n\n");
+    buffer = parts.pop() ?? "";
+    for (const part of parts) {
+      if (!part.startsWith("data: ")) continue;
+      const event = JSON.parse(part.slice(6)) as CoachEvent | ({ type: "done" } & CoachResult) | { type: "error"; message: string };
+      if (event.type === "done") return event;
+      if (event.type === "error") throw new Error(event.message);
+      onEvent(event);
+    }
+  }
+  throw new Error("The coach stopped early. Try again.");
+}
+
+export function coachSend(message: string): Promise<CoachResult> {
   return nutritionAi({ action: "chat", message });
 }
 

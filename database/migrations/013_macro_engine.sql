@@ -389,3 +389,66 @@ BEGIN
     PERFORM cron.schedule('fitos-promote-dishes', '30 3 * * 1', 'select private.promote_dishes()');
   END IF;
 END $$;
+
+-- Weekly review on demand for the signed-in user (coach tool and Home card).
+CREATE OR REPLACE FUNCTION public.my_weekly_review()
+RETURNS SETOF public.coach_insights LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, private AS $$
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'not signed in'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.coach_insights WHERE user_id = auth.uid() AND kind = 'weekly_review' AND created_at > now() - interval '1 day') THEN
+    PERFORM private.weekly_review(auth.uid());
+  END IF;
+  RETURN QUERY SELECT * FROM public.coach_insights WHERE user_id = auth.uid() AND kind = 'weekly_review' ORDER BY created_at DESC LIMIT 1;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.my_weekly_review() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.my_weekly_review() TO authenticated;
+
+-- Verified staples (cooked, as eaten, per 100 g; IFCT 2017 and USDA reference values) so suggestions and
+-- retrieval have grounded numbers before the full IFCT import.
+DO $$
+DECLARE
+  v RECORD; v_id UUID;
+BEGIN
+  FOR v IN SELECT * FROM (VALUES
+    ('Rice, cooked', 'indian', 130, 2.7, 28.2, 0.3, 0.4, 'katori', 150),
+    ('Roti (whole wheat)', 'indian', 297, 9.8, 54.7, 3.9, 7.3, 'roti', 40),
+    ('Toor dal, cooked', 'indian', 118, 6.8, 18.2, 2.0, 4.5, 'katori', 150),
+    ('Moong dal, cooked', 'indian', 105, 7.0, 17.5, 1.0, 4.0, 'katori', 150),
+    ('Rajma, cooked', 'indian', 127, 8.7, 22.8, 0.5, 6.4, 'katori', 150),
+    ('Chana, cooked', 'indian', 164, 8.9, 27.4, 2.6, 7.6, 'katori', 150),
+    ('Paneer', 'indian', 265, 18.3, 1.2, 20.8, 0, 'piece', 25),
+    ('Curd (dahi)', 'indian', 60, 3.1, 4.4, 3.3, 0, 'katori', 150),
+    ('Idli', 'south_indian', 140, 4.5, 29.0, 0.4, 1.2, 'piece', 40),
+    ('Plain dosa', 'south_indian', 190, 4.0, 30.0, 6.0, 1.5, 'piece', 100),
+    ('Sambar', 'south_indian', 75, 3.2, 10.5, 2.2, 2.4, 'katori', 150),
+    ('Poha', 'indian', 160, 3.0, 27.0, 4.5, 1.5, 'plate', 200),
+    ('Upma', 'indian', 170, 4.0, 25.0, 6.0, 1.8, 'plate', 200),
+    ('Besan chilla', 'indian', 210, 10.0, 25.0, 8.0, 4.5, 'piece', 80),
+    ('Soya chunks, cooked', 'indian', 115, 17.0, 10.0, 0.5, 4.0, 'katori', 100),
+    ('Moong sprouts', 'indian', 30, 3.0, 6.0, 0.2, 1.8, 'katori', 100),
+    ('Mixed vegetable sabzi', 'indian', 90, 2.5, 9.0, 5.0, 3.0, 'katori', 150),
+    ('Chicken breast, grilled', 'western', 165, 31.0, 0, 3.6, 0, 'piece', 150),
+    ('Chicken curry', 'indian', 160, 15.0, 4.0, 9.5, 0.8, 'katori', 150),
+    ('Fish curry', 'indian', 130, 14.0, 4.0, 6.5, 0.5, 'katori', 150),
+    ('Egg, boiled', 'western', 155, 12.6, 1.1, 10.6, 0, 'piece', 50),
+    ('Greek yogurt, plain', 'western', 97, 9.0, 3.9, 5.0, 0, 'cup', 170),
+    ('Milk, toned', 'indian', 58, 3.1, 4.7, 3.0, 0, 'cup', 250),
+    ('Tofu, firm', 'western', 144, 15.8, 2.8, 8.7, 2.3, 'piece', 100),
+    ('Oats, cooked with water', 'western', 71, 2.5, 12.0, 1.5, 1.7, 'cup', 240),
+    ('Whey protein powder', 'western', 400, 78.0, 8.0, 6.0, 0, 'serving', 31),
+    ('Banana', 'western', 89, 1.1, 22.8, 0.3, 2.6, 'piece', 118),
+    ('Apple', 'western', 52, 0.3, 13.8, 0.2, 2.4, 'piece', 180),
+    ('Peanut butter', 'western', 588, 25.1, 20.0, 50.0, 6.0, 'tbsp', 16),
+    ('Almonds', 'western', 579, 21.2, 21.6, 49.9, 12.5, 'serving', 28),
+    ('Whole wheat bread', 'western', 247, 13.0, 41.0, 3.4, 7.0, 'piece', 32),
+    ('Potato, boiled', 'western', 87, 1.9, 20.1, 0.1, 1.8, 'piece', 150)
+  ) AS t(name, cuisine, kcal, p, c, f, fibre, unit, grams) LOOP
+    CONTINUE WHEN EXISTS (SELECT 1 FROM public.foods WHERE owner_id IS NULL AND lower(name) = lower(v.name));
+    INSERT INTO public.foods (name, owner_id, source, verified, is_dish, cuisine, confidence)
+      VALUES (v.name, NULL, 'verified', TRUE, FALSE, v.cuisine, 0.95) RETURNING id INTO v_id;
+    INSERT INTO public.food_nutrition (food_id, calories, protein_g, carbs_g, fat_g, fiber_g, source, confidence)
+      VALUES (v_id, v.kcal, v.p, v.c, v.f, v.fibre, 'reference', 0.95);
+    INSERT INTO public.food_servings (food_id, unit, grams, label) VALUES (v_id, v.unit, v.grams, '1 ' || v.unit);
+  END LOOP;
+END $$;

@@ -5,6 +5,7 @@ const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
 
 export const supabaseConfigured = Boolean(url && anonKey);
 export const supabaseUrl = url;
+export const supabaseAnonKey = anonKey;
 
 export const supabase = createClient(url || "http://localhost:54321", anonKey || "missing-anon-key", {
   auth: {

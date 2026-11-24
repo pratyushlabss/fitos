@@ -6,6 +6,7 @@ import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
+import { CoachSettings } from "@/components/profile/CoachSettings";
 
 import { useAuth, useProfile } from "@/components/auth/AuthProvider";
 import { ScreenHeader } from "@/components/shell/ScreenHeader";
@@ -166,6 +167,9 @@ export default function EditProfilePage() {
           {save.isPending ? "Saving…" : "Save changes"}
         </Button>
       </form>
+      <div className="mt-5">
+        <CoachSettings />
+      </div>
     </>
   );
 }

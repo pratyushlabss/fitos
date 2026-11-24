@@ -222,6 +222,8 @@ export type MealItem = {
   source_version: string | null;
   confidence: number;
   analysis_id: string | null;
+  micros?: Record<string, number>;
+  oil_level?: "none" | "light" | "normal" | "heavy" | null;
 };
 
 export type Meal = {
@@ -273,6 +275,12 @@ export type DraftItem = {
   match_score: number | null;
   ingredients: DraftIngredient[];
   servings: Serving[];
+  confidence_level?: "high" | "medium" | "low";
+  portion?: { min: number; typical: number; max: number } | null;
+  cooking_method?: string | null;
+  oil_for?: string | null;
+  oil_level?: "none" | "light" | "normal" | "heavy" | null;
+  oil_base_grams?: number | null;
 };
 
 export type FoodDraft = {
@@ -291,6 +299,7 @@ export type FoodDraft = {
   candidates_count: number;
   // Server sanity-check notes: adjusted portions, dropped low-confidence items, second look.
   notes?: string[];
+  quick_question?: { item_key: string; text: string; options: number[] } | null;
 };
 
 export type NutritionDay = {

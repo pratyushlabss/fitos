@@ -136,6 +136,7 @@ export default function NutritionPage() {
               <div className="mt-4">
                 <MacroBar kind="fibre" value={totals.fibre_g} target={targets.fibre_g} />
               </div>
+              <Micros meals={meals.data ?? []} />
             </>
           )}
         </SectionCard>
@@ -175,7 +176,11 @@ export default function NutritionPage() {
                   {items.map((item) => (
                     <button key={item.id} onClick={() => setItemMenu(item)} className="flex w-full items-center justify-between rounded-xl border border-white/5 bg-slate-950/60 p-3 text-left">
                       <div className="min-w-0">
-                        <p className="truncate font-medium text-white">{item.name}</p>
+                        <p className="flex items-center gap-1.5 truncate font-medium text-white">
+                          <span className="truncate">{item.name}</span>
+                          <span className={`inline-block h-2 w-2 shrink-0 rounded-full border border-fg ${item.confidence >= 0.75 ? "bg-fg" : ""}`} title={`${item.confidence >= 0.75 ? "high" : item.confidence >= 0.5 ? "medium" : "low"} confidence`} />
+                          {item.oil_level ? <span className="shrink-0 rounded-full border border-line px-1.5 text-[10px] font-normal text-muted">oil: {item.oil_level}</span> : null}
+                        </p>
                         <p className="text-xs text-slate-400">
                           {item.unit === "g" ? `${Math.round(item.amount_grams)} g` : `${item.quantity} ${UNIT_LABEL[item.unit]} · ${Math.round(item.amount_grams)} g`} · {Math.round(item.protein_g)}P {Math.round(item.carbs_g)}C {Math.round(item.fat_g)}F
                         </p>
@@ -391,5 +396,33 @@ function MealSheet({ meal, today, onClose, onChanged }: { meal: Meal | null; tod
         </div>
       ) : null}
     </Sheet>
+  );
+}
+
+const MICRO_LABELS: Array<[string, string, string]> = [
+  ["iron_mg", "Iron", "mg"],
+  ["calcium_mg", "Calcium", "mg"],
+  ["vitamin_c_mg", "Vitamin C", "mg"],
+  ["b12_ug", "Vitamin B12", "µg"],
+  ["sodium_mg", "Sodium", "mg"],
+  ["potassium_mg", "Potassium", "mg"],
+];
+
+// Collapsed by default; only foods with micronutrient data (IFCT) contribute.
+function Micros({ meals }: { meals: Meal[] }) {
+  const totals: Record<string, number> = {};
+  for (const meal of meals) for (const item of meal.meal_items) for (const [k, v] of Object.entries(item.micros ?? {})) totals[k] = (totals[k] ?? 0) + Number(v);
+  return (
+    <details className="mt-4 rounded-[14px] border border-line px-3 py-2">
+      <summary className="press min-h-[36px] cursor-pointer list-none py-2 text-xs font-medium text-fg">Micronutrients</summary>
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-1 pb-2 text-xs">
+        {MICRO_LABELS.map(([key, label, unit]) => (
+          <div key={key} className="flex justify-between">
+            <dt className="text-muted">{label}</dt>
+            <dd className="num text-fg">{totals[key] !== undefined ? `${Math.round(totals[key] * 10) / 10} ${unit}` : "–"}</dd>
+          </div>
+        ))}
+      </dl>
+    </details>
   );
 }

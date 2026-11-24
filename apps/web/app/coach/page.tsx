@@ -12,13 +12,13 @@ import { Sheet } from "@/components/ui/Sheet";
 import { EmptyState, ErrorState, SkeletonList } from "@/components/ui/States";
 import { useToast } from "@/components/ui/Toast";
 import { localDayKey } from "@/lib/data/base";
-import { coachHistory, coachSend } from "@/lib/data/nutrition";
+import { type CoachCard, coachHistory, coachStream, confirmDraft } from "@/lib/data/nutrition";
 import { defaultMealType } from "@/lib/logic/dashboard";
 import { macrosFor, sumMacros } from "@/lib/logic/nutrition";
 
 const QUICK_PROMPTS = ["What's left today?", "Log my breakfast", "What did I eat yesterday?", "How much protein is in my usual breakfast?"];
 
-type Local = CoachMessage & { drafts?: FoodDraft[]; pending?: boolean };
+type Local = CoachMessage & { drafts?: FoodDraft[]; cards?: CoachCard[]; chips?: string[]; pending?: boolean };
 
 export default function CoachPage() {
   const toast = useToast();
@@ -35,20 +35,30 @@ export default function CoachPage() {
   }, [messages.length]);
 
   const send = useMutation({
-    mutationFn: (text: string) => coachSend(text),
+    mutationFn: (text: string) =>
+      coachStream(text, (event) =>
+        setLocal((current) =>
+          current.map((m) =>
+            m.pending ? (event.type === "tool" ? { ...m, chips: [...(m.chips ?? []), event.label] } : { ...m, content: m.content + event.text }) : m,
+          ),
+        ),
+      ),
     onMutate: (text) => {
       setInput("");
       setLocal((current) => [
         ...current,
         { id: `u-${Date.now()}`, role: "user", content: text, created_at: new Date().toISOString() },
-        { id: `p-${Date.now()}`, role: "assistant", content: "…", created_at: new Date().toISOString(), pending: true },
+        { id: `p-${Date.now()}`, role: "assistant", content: "", chips: [], created_at: new Date().toISOString(), pending: true },
       ]);
     },
     onSuccess: (result) => {
-      setLocal((current) => [
-        ...current.filter((m) => !m.pending),
-        { id: `a-${Date.now()}`, role: "assistant", content: result.reply, created_at: new Date().toISOString(), drafts: result.logged ? [] : result.drafts },
-      ]);
+      setLocal((current) => {
+        const chips = current.find((m) => m.pending)?.chips ?? [];
+        return [
+          ...current.filter((m) => !m.pending),
+          { id: `a-${Date.now()}`, role: "assistant", content: result.reply, created_at: new Date().toISOString(), drafts: result.logged ? [] : result.drafts, cards: result.cards ?? [], chips },
+        ];
+      });
       if (result.logged) {
         void queryClient.invalidateQueries({ queryKey: ["meals"] });
         void queryClient.invalidateQueries({ queryKey: ["nutrition-history"] });
@@ -92,8 +102,32 @@ export default function CoachPage() {
             const mine = message.role === "user";
             return (
               <div key={message.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-                <div className={`max-w-[85%] rounded-2xl px-3 py-2 ${mine ? "bg-emerald-400/20" : "bg-slate-800"}`}>
-                  <p className={`selectable whitespace-pre-wrap text-sm leading-6 text-slate-100 ${message.pending ? "animate-pulse" : ""}`}>{message.content}</p>
+                <div className={`max-w-[88%] rounded-[18px] px-3.5 py-2.5 ${mine ? "bg-max text-bg" : "border border-line bg-surface-1 text-fg"}`}>
+                  {message.chips?.length ? (
+                    <div className="mb-1.5 flex flex-wrap gap-1">
+                      {message.chips.map((chip, i) => (
+                        <span key={`${chip}${i}`} className="num rounded-full border border-line px-2 py-0.5 text-[10px] text-muted">
+                          {chip}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {message.pending && !message.content ? (
+                    <span className="inline-flex gap-1 py-1" aria-label="Coach is typing">
+                      {[0, 1, 2].map((i) => (
+                        <span key={i} className="h-1.5 w-1.5 animate-pulse-dot rounded-full bg-fg" style={{ animationDelay: `${i * 0.2}s` }} />
+                      ))}
+                    </span>
+                  ) : (
+                    <p className="selectable whitespace-pre-wrap text-sm leading-6">{message.content}</p>
+                  )}
+                  {(message.cards ?? []).map((card, i) => (
+                    <CoachCardView key={i} card={card} onLogged={(text) => {
+                      toast(text, "success");
+                      void queryClient.invalidateQueries({ queryKey: ["meals"] });
+                      void queryClient.invalidateQueries({ queryKey: ["nutrition-history"] });
+                    }} />
+                  ))}
                   {(message.drafts ?? [])
                     .filter((draft) => draft.items.length)
                     .map((draft) => {
@@ -162,6 +196,57 @@ export default function CoachPage() {
           />
         ) : null}
       </Sheet>
+    </div>
+  );
+}
+
+// Meal options, day plans and weekly reviews from the coach. Macros are exact; "Log this" saves the items as shown.
+function CoachCardView({ card, onLogged }: { card: CoachCard; onLogged: (message: string) => void }) {
+  const [busy, setBusy] = useState<string | null>(null);
+  async function log(key: string, items: FoodDraft["items"], meal = defaultMealType()) {
+    setBusy(key);
+    try {
+      const result = await confirmDraft({ analysis_id: null, meal_type: meal, date: localDayKey(), source: "chat", items });
+      onLogged(`Logged ${result.logged} item${result.logged === 1 ? "" : "s"} to ${meal}`);
+    } catch (error) {
+      onLogged(error instanceof Error ? error.message : "Could not log that.");
+    } finally {
+      setBusy(null);
+    }
+  }
+  if (card.kind === "review") {
+    return (
+      <div className="mt-2 rounded-[14px] border border-line p-3 text-xs leading-5 text-fg/90">
+        <p className="eyebrow mb-1">{card.title}</p>
+        {card.body}
+      </div>
+    );
+  }
+  const rows =
+    card.kind === "options"
+      ? (card.options ?? []).map((o, i) => ({ key: `o${i}`, title: o.title, sub: o.why, items: o.items, totals: o.totals, meal: undefined }))
+      : (card.plan?.meals ?? []).map((m) => ({ key: m.meal, title: m.meal, sub: m.items.map((i) => `${i.name} ${i.grams} g`).join(" · "), items: m.items, totals: m.totals, meal: m.meal }));
+  return (
+    <div className="mt-2 space-y-2">
+      {card.kind === "plan" && card.plan ? (
+        <p className="num text-[11px] text-muted">
+          Day: {card.plan.totals.kcal} kcal · P{card.plan.totals.protein_g} C{card.plan.totals.carbs_g} F{card.plan.totals.fat_g}
+        </p>
+      ) : null}
+      {rows.map((row) => (
+        <div key={row.key} className="rounded-[14px] border border-line bg-bg p-3">
+          <p className="text-sm font-semibold capitalize tracking-tight">{row.title}</p>
+          <p className="mt-0.5 text-xs leading-5 text-muted">{row.sub}</p>
+          <div className="mt-2 flex items-center justify-between gap-2">
+            <span className="num text-[11px] text-fg/80">
+              {row.totals.kcal} kcal · P{row.totals.protein_g} C{row.totals.carbs_g} F{row.totals.fat_g}
+            </span>
+            <button className="press min-h-[36px] rounded-full bg-max px-3 text-xs font-semibold text-bg disabled:opacity-40" disabled={busy !== null || !row.items.length} onClick={() => void log(row.key, row.items, row.meal)}>
+              {busy === row.key ? "Logging…" : "Log this"}
+            </button>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

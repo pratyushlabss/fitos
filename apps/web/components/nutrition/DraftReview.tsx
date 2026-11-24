@@ -121,6 +121,28 @@ export function DraftReview({
         </div>
       ) : null}
 
+      {draft.quick_question && items.some((i) => i.key === draft.quick_question?.item_key) ? (
+        <div className="rounded-[14px] border border-line p-3">
+          <p className="text-sm font-semibold text-fg">{draft.quick_question.text}</p>
+          <div className="mt-2 flex gap-2">
+            {draft.quick_question.options.map((count) => {
+              const target = items.find((i) => i.key === draft.quick_question?.item_key)!;
+              const active = target.quantity === count;
+              return (
+                <button
+                  key={count}
+                  type="button"
+                  className={`press num h-11 min-w-[44px] rounded-full border px-3 text-sm ${active ? "border-max bg-max font-semibold text-bg" : "border-line text-fg"}`}
+                  onClick={() => patch(target.key, withAmount(target, count, target.unit))}
+                >
+                  {count}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
       <div className="space-y-2">
         {items.map((item) => {
           const m = macrosFor(item);
@@ -131,7 +153,10 @@ export function DraftReview({
                 <button className="flex min-w-0 flex-1 items-center gap-2 text-left" onClick={() => setOpen(expanded ? null : item.key)} aria-expanded={expanded}>
                   {item.ingredients.length ? expanded ? <ChevronDown size={16} className="shrink-0 text-slate-400" /> : <ChevronRight size={16} className="shrink-0 text-slate-400" /> : <span className="w-4" />}
                   <span className="min-w-0">
-                    <span className="block truncate text-sm font-medium text-white">{item.name}</span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="block truncate text-sm font-medium text-white">{item.name}</span>
+                      <ItemConfidence value={item.confidence} />
+                    </span>
                     <span className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400">
                       <SourceBadge source={item.source} />
                       {Math.round(m.kcal)} kcal · {m.protein_g}P {m.carbs_g}C {m.fat_g}F
@@ -179,6 +204,43 @@ export function DraftReview({
                   />
                 </label>
               </div>
+              {item.oil_for && item.oil_base_grams ? (
+                <div className="flex items-center gap-1.5 px-3 pb-3" role="group" aria-label={`Oil level for ${item.name}`}>
+                  {(["none", "light", "normal", "heavy"] as const).map((level) => (
+                    <button
+                      key={level}
+                      type="button"
+                      className={`press min-h-[36px] flex-1 rounded-full border text-xs capitalize ${item.oil_level === level ? "border-max bg-max font-semibold text-bg" : "border-line text-fg/80"}`}
+                      onClick={() => {
+                        const grams = round1((item.oil_base_grams ?? 0) * OIL_FACTOR[level]);
+                        patch(item.key, { ...item, oil_level: level, grams, quantity: grams });
+                      }}
+                    >
+                      {level}
+                    </button>
+                  ))}
+                </div>
+              ) : item.portion && item.portion.max > item.portion.min ? (
+                <div className="px-3 pb-3">
+                  <input
+                    type="range"
+                    className="w-full accent-[rgb(var(--max))]"
+                    min={item.portion.min}
+                    max={item.portion.max}
+                    step={1}
+                    value={Math.min(Math.max(item.grams, item.portion.min), item.portion.max)}
+                    onChange={(event) => patch(item.key, setGrams(item, Number(event.target.value)))}
+                    aria-label={`Grams of ${item.name}`}
+                  />
+                  <div className="relative h-4 text-[10px] text-muted">
+                    <span className="num absolute left-0">{Math.round(item.portion.min)}</span>
+                    <span className="num absolute -translate-x-1/2" style={{ left: `${((item.portion.typical - item.portion.min) / (item.portion.max - item.portion.min)) * 100}%` }}>
+                      ▲{Math.round(item.portion.typical)}
+                    </span>
+                    <span className="num absolute right-0">{Math.round(item.portion.max)}</span>
+                  </div>
+                </div>
+              ) : null}
               {expanded && item.ingredients.length ? (
                 <div className="space-y-1.5 border-t border-white/5 px-3 py-2">
                   <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500">Ingredients (raw grams)</p>
@@ -300,5 +362,22 @@ function AddItem({ onAdd }: { onAdd: (item: DraftItem) => void }) {
         Cancel
       </button>
     </div>
+  );
+}
+
+const OIL_FACTOR = { none: 0, light: 0.5, normal: 1, heavy: 1.5 } as const;
+
+function setGrams(item: DraftItem, grams: number): DraftItem {
+  const factor = item.grams > 0 ? grams / item.grams : 1;
+  return { ...item, grams, ingredients: item.ingredients.map((ing) => ({ ...ing, grams: round1(ing.grams * factor) })) };
+}
+
+// Three-level confidence: filled (high), half (medium), outline (low). No colour.
+function ItemConfidence({ value }: { value: number }) {
+  const level = value >= 0.75 ? "high" : value >= 0.5 ? "medium" : "low";
+  return (
+    <span className="inline-flex h-2.5 w-2.5 shrink-0 overflow-hidden rounded-full border border-fg" title={`${level} confidence`} aria-label={`${level} confidence`}>
+      <span className={level === "high" ? "h-full w-full bg-fg" : level === "medium" ? "h-full w-1/2 bg-fg" : ""} />
+    </span>
   );
 }
