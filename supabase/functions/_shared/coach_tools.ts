@@ -66,15 +66,23 @@ async function foodRow(ctx: Ctx, foodId: string): Promise<FoodRow | null> {
 
 // ---------- lookup_food / explain_food ----------
 
+// "IFCT 2017 (NIN Hyderabad) A014"; recipe dishes keep their cooked weight in source_ref, which isn't a reference.
+const sourceLabel = (source: string | null | undefined, ref: string | null | undefined) =>
+  ref && !ref.startsWith("cooked_total_g") ? (source ? `${source} ${ref}` : ref) : (source ?? "");
+
 export async function lookupFood(ctx: Ctx, query: string) {
   const gate = await previewMatch(ctx, query);
   if (gate.status === "NO_MATCH") return { status: "unknown", message: `I don't know "${query}" yet. Offer to add it manually or by describing its ingredients. Do not guess numbers.` };
   if (gate.status === "CLARIFY") return { status: "clarify", question: `Which food did you mean by "${query}"?`, options: gate.options };
-  const hits = (await searchFoods(ctx, query, null, 5)).filter((h) => h.kcal !== null).slice(0, 3);
+  // Hits come best first (tier breaks ties), so keep the first row per name: one "Idli", the food DB's.
+  const seen = new Set<string>();
+  const hits = (await searchFoods(ctx, query, null, 8))
+    .filter((h) => h.kcal !== null && !seen.has(h.name.trim().toLowerCase()) && seen.add(h.name.trim().toLowerCase()))
+    .slice(0, 3);
   const foods = [];
   for (const h of hits) {
     const portion = await usualPortion(ctx, h.food_id);
-    foods.push({ food_id: h.food_id, name: label(h.name, h.tier), tier: h.tier ?? null, source: h.source_ref || h.source, portion: portion.text, per_portion: await compute(ctx, h.food_id, portion.grams) });
+    foods.push({ food_id: h.food_id, name: label(h.name, h.tier), tier: h.tier ?? null, source: sourceLabel(h.source, h.source_ref), portion: portion.text, per_portion: await compute(ctx, h.food_id, portion.grams) });
   }
   return { status: "ok", foods };
 }

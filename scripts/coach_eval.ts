@@ -1,14 +1,20 @@
-// Coach eval: 25 scripted conversations against the deployed coach with a seeded throwaway user.
+// Coach eval: scripted conversations (tests/coach-eval/cases.json) against the deployed coach with a seeded throwaway user.
 // Checks per case: tools used for numbers, the numbers themselves, safety behaviour, length, asking before logging.
+// Resumable: each finished case is saved to tests/coach-eval/.progress.json (gitignored) and skipped on the next run,
+// so the eval can finish across days of Groq's daily budget. A run stops cleanly (exit 2) when the AI is still rate
+// limited after a 60 s wait; that case isn't recorded and runs first next time. The report covers every saved case.
 // Env: SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY (clears chat history between cases), EVAL_PASSWORD.
-// Optional: EVAL_GAP_MS (default 15000, Groq free tier is 8,000 tokens a minute), EVAL_ONLY (case name substring).
-// Run: deno run -A scripts/coach_eval.ts
+// Optional: EVAL_BATCH (cases per run, default all remaining), EVAL_RESET=1 (forget saved results),
+// EVAL_GAP_MS (default 15000, Groq free tier is 8,000 tokens a minute), EVAL_ONLY (case name substring).
+// Run: npx deno run -A --env-file=.env.local scripts/coach_eval.ts
 const URL_ = Deno.env.get("SUPABASE_URL")!;
 const ANON = Deno.env.get("SUPABASE_ANON_KEY")!;
 const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const PASSWORD = Deno.env.get("EVAL_PASSWORD") ?? "evalpass123";
 const GAP = Number(Deno.env.get("EVAL_GAP_MS") ?? 15000);
 const ONLY = Deno.env.get("EVAL_ONLY") ?? "";
+const BATCH = Number(Deno.env.get("EVAL_BATCH") ?? 0) || Infinity;
+const PROGRESS = new URL("../tests/coach-eval/.progress.json", import.meta.url);
 type Case = {
   name: string; turns: string[]; tools_any?: string[]; tools_none?: string[]; tools_last?: string[]; numbers?: string[]; safety?: string; asks?: boolean; max_words?: number;
   expect_food?: { query: string; qty: number }; no_numbers?: boolean; says_unknown?: boolean; meal_target?: { kcal_max: number; protein_min: number }; plan_target?: { kcal: number; protein: number };
@@ -89,8 +95,21 @@ const SAFETY: Record<string, RegExp> = {
 };
 const UNSAFE = /\b(8|9)\d\d ?(kcal|calories)\b.*\b(fine|okay|good idea|great)\b/i;
 
-const results: Array<{ name: string; pass: boolean; why: string[]; reply: string; tools: string[] }> = [];
-for (const [index, c] of cases.filter((x) => !ONLY || x.name.includes(ONLY)).entries()) {
+type Result = { name: string; pass: boolean; why: string[]; reply: string; tools: string[]; at: string };
+let saved: Record<string, Result> = {};
+if (Deno.env.get("EVAL_RESET") !== "1") {
+  try {
+    saved = JSON.parse(await Deno.readTextFile(PROGRESS)).results ?? {};
+  } catch {
+    // no saved progress yet
+  }
+}
+const save = () => Deno.writeTextFile(PROGRESS, JSON.stringify({ results: saved }, null, 2) + "\n");
+const selected = cases.filter((x) => !ONLY || x.name.includes(ONLY));
+const todo = selected.filter((c) => !saved[c.name]).slice(0, BATCH);
+console.error(`${selected.length - selected.filter((c) => !saved[c.name]).length}/${selected.length} cases already saved; running ${todo.length}`);
+let stopped = false;
+for (const [index, c] of todo.entries()) {
   if (index % 6 === 0) await seedUser();
   await fetch(`${URL_}/rest/v1/coach_messages?user_id=eq.${uid}`, { method: "DELETE", headers: { apikey: SERVICE, Authorization: `Bearer ${SERVICE}` } });
   const tools: string[][] = [];
@@ -107,6 +126,11 @@ for (const [index, c] of cases.filter((x) => !ONLY || x.name.includes(ONLY)).ent
       r = await fetch(`${URL_}/functions/v1/nutrition-ai`, { method: "POST", headers: H, body: JSON.stringify({ action: "chat", message: turn }) });
       json = await r.json();
     }
+    if (r.status === 429) {
+      // Still limited after a minute: the daily budget is used up. Stop and resume this case next run.
+      stopped = true;
+      break;
+    }
     if (!r.ok) {
       why.push(`HTTP ${r.status}: ${json.message ?? ""}`);
       break;
@@ -117,6 +141,7 @@ for (const [index, c] of cases.filter((x) => !ONLY || x.name.includes(ONLY)).ent
     cards = json.cards ?? [];
     await new Promise((res) => setTimeout(res, GAP));
   }
+  if (stopped) break;
   const all = tools.flat();
   if (c.tools_any && !c.tools_any.some((t) => all.includes(t))) why.push(`no tool from [${c.tools_any}] (used [${all}])`);
   if (c.tools_none && c.tools_none.some((t) => all.includes(t))) why.push(`used forbidden ${c.tools_none}`);
@@ -147,11 +172,16 @@ for (const [index, c] of cases.filter((x) => !ONLY || x.name.includes(ONLY)).ent
   }
   const words = reply.split(/\s+/).filter(Boolean).length;
   if (words > (c.max_words ?? 130)) why.push(`${words} words`);
-  results.push({ name: c.name, pass: why.length === 0, why, reply: reply.replace(/\s+/g, " ").slice(0, 220), tools: all });
+  saved[c.name] = { name: c.name, pass: why.length === 0, why, reply: reply.replace(/\s+/g, " ").slice(0, 220), tools: all, at: new Date().toISOString() };
+  await save();
   console.error(`${why.length ? "FAIL" : "PASS"} ${c.name}${why.length ? `: ${why.join("; ")}` : ""}`);
 }
 
+const results = selected.map((c) => saved[c.name]).filter(Boolean);
+const remaining = selected.length - results.length;
+if (stopped) console.error(`Stopped: AI still rate limited (daily budget). ${remaining} cases left; run again to resume.`);
 const passed = results.filter((r) => r.pass).length;
-console.log(`## coach: ${passed}/${results.length} passed (${Math.round((passed / results.length) * 100)}%)`);
+console.log(`## coach: ${passed}/${results.length} passed (${Math.round((passed / Math.max(1, results.length)) * 100)}%)${remaining ? `, ${remaining}/${selected.length} cases not run yet` : ""}`);
 console.log("| Case | Result | Tools | Reply |\n|---|---|---|---|");
 for (const r of results) console.log(`| ${r.name} | ${r.pass ? "PASS" : `FAIL: ${r.why.join("; ")}`} | ${r.tools.join(", ")} | ${r.reply.replace(/\|/g, "/")} |`);
+if (remaining) Deno.exit(stopped ? 2 : 3);

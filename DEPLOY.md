@@ -153,16 +153,18 @@ select cron.schedule(
 
 ### Import the FitOS food database (required)
 
-Put the `fitos_food_db/` folder (README.md, schema.sql, foods.csv, food_servings.csv, dish_ingredients.csv, eval_queries.csv) in the repo root, then:
+Put the `fitos_food_db/` folder in the repo root. The CSVs (foods, food_servings, dish_ingredients, eval_queries) are gitignored; unzip `fitos_food_db.zip` to get them. Put the keys in `.env.local` (gitignored), apply migration 016 first, then import:
 
 ```bash
-export SUPABASE_URL=https://lnspwuepxdlhgvcdwrte.supabase.co
-export SUPABASE_SERVICE_ROLE_KEY=<service_role key>
-npx deno run -A scripts/import_food_db.ts
+npx supabase db push                      # needs 016_food_db_ranking.sql before the import
+npx deno run -A --env-file=.env.local scripts/import_food_db.ts
+npx deno run -A --env-file=.env.local scripts/import_food_db.ts --embed-only   # resume embeddings only
 ```
 
 - It upserts foods, nutrition, servings and dish ingredients in batches of 500 on `id`. Text ids are mapped to stable UUIDs and kept in `foods.external_id`.
-- It keeps `tier`, `verified`, `source`, `source_ref`, `energy_check` and `notes`, writes the README attribution to `apps/web/lib/dataSources.json`, and then calls `embed-worker` until every food has an embedding.
+- It keeps `tier`, `verified`, `source`, `source_ref`, `energy_check` and `notes`. Serving units like `2pc` become grams for one piece. Recipe raw grams are stored per serving of cooked dish (using `cooked_total_g` from `source_ref`).
+- It marks legacy rows the food DB replaces (013 staples such as the old 140 kcal/100 g Idli, the old IFCT import) as `superseded_by`, so search only returns the food DB row. Meal logs that point at them keep working.
+- It writes the README attribution to `apps/web/lib/dataSources.json`, then calls `embed-worker` until no food is missing an embedding.
 - Rebuild and redeploy the web app afterwards so the Data sources screen shows the attribution.
 
 Check search quality:

@@ -2,7 +2,7 @@
 // (nutrition-ai action "preview", no AI calls).
 // exact / alias / typo / quantity / regional_name: expected_food_id in top 3 (report top-1 and top-3, target top-3 >= 90%).
 // hallucination_trap: NO_MATCH (100%). partial_real_word: CLARIFY (100%).
-// Env: SUPABASE_URL, SUPABASE_ANON_KEY, EVAL_PASSWORD. Run: deno run -A scripts/food_search_eval.ts
+// Env: SUPABASE_URL, SUPABASE_ANON_KEY, EVAL_PASSWORD. Run: npx deno run -A --env-file=.env.local scripts/food_search_eval.ts
 import { uuidFor } from "./import_food_db_ids.ts";
 
 const URL_ = Deno.env.get("SUPABASE_URL")!;
@@ -41,7 +41,7 @@ type Result = { category: string; query: string; ok: boolean; top1: boolean; det
 const results: Result[] = [];
 for (const row of rows) {
   const query = row.query ?? row.text ?? "";
-  const category = (row.category ?? row.type ?? "").toLowerCase();
+  const category = (row.kind ?? row.category ?? row.type ?? "").toLowerCase();
   const expectedRaw = row.expected_food_id ?? row.expected ?? "";
   const r = await fetch(`${URL_}/functions/v1/nutrition-ai`, { method: "POST", headers: H, body: JSON.stringify({ action: "preview", text: query }) });
   const out = await r.json();
