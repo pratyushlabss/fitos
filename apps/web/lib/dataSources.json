@@ -1,1 +1,9 @@
-{ "sources": [] }
+{
+  "sources": [
+    "IFCT 2017: Longvah T. et al., *Indian Food Composition Tables 2017*, National Institute of Nutrition (ICMR), Hyderabad. Digitised by the `ifct2017` package (AGPL-3.0).",
+    "USDA FoodData Central SR Legacy: public domain (CC0), via the TempoLife extract: \"Food nutrition data from TempoLife (tempolife.app), CC-BY-4.0.\"",
+    "Max Rubner-Institut (2025), Bundeslebensmittelschlüssel (BLS) 4.0, CC BY 4.0, via `@thereforejs/foods`.",
+    "UK CoFID 2021 (Open Government Licence v3.0); Swedish Food Agency.",
+    "Open Indian Nutrition Engine (MIT), community tier."
+  ]
+}

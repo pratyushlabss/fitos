@@ -19,15 +19,44 @@ const db = createClient(URL_, KEY, { auth: { persistSession: false } });
 const BATCH = 500;
 const EMBED_ONLY = Deno.args.includes("--embed-only");
 
-// embed-worker does 100 foods per call; keep calling until none are left or a call makes no progress.
-async function embedAll() {
-  for (let round = 0; ; round += 1) {
-    const r = await fetch(`${URL_}/functions/v1/embed-worker`, { method: "POST", headers: { Authorization: `Bearer ${KEY}`, "Content-Type": "application/json" }, body: "{}" });
+// embed-worker embeds ~10 foods per call before hitting its compute limit, so missing ids are sent in chunks of
+// EMBED_LIMIT across EMBED_PARALLEL concurrent calls. Repeats until nothing is missing or a pass makes no progress.
+const EMBED_LIMIT = Number(Deno.env.get("EMBED_LIMIT") ?? 10);
+const EMBED_PARALLEL = Number(Deno.env.get("EMBED_PARALLEL") ?? 6);
+async function missingEmbeddings(): Promise<string[]> {
+  const ids: string[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await db.from("foods").select("id").is("embedding", null).order("id").range(from, from + 999);
+    if (error) throw new Error(`foods without embedding: ${error.message}`);
+    ids.push(...(data ?? []).map((r: { id: string }) => r.id));
+    if ((data ?? []).length < 1000) return ids;
+  }
+}
+async function embedChunk(ids: string[]): Promise<number> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const r = await fetch(`${URL_}/functions/v1/embed-worker`, { method: "POST", headers: { Authorization: `Bearer ${KEY}`, "Content-Type": "application/json" }, body: JSON.stringify({ limit: ids.length, ids }) });
     const out = await r.json().catch(() => ({}));
-    console.log(`embed-worker ${round + 1}: ${JSON.stringify(out)}`);
-    if (!r.ok) throw new Error(`embed-worker HTTP ${r.status}`);
-    if (!out.remaining) return;
-    if (!out.foods) throw new Error(`embed-worker made no progress; ${out.remaining} foods still without an embedding`);
+    if (r.ok) return Number(out.foods ?? 0);
+    await new Promise((res) => setTimeout(res, 2000 * (attempt + 1)));
+  }
+  return 0;
+}
+async function embedAll() {
+  for (let pass = 1; ; pass += 1) {
+    const missing = await missingEmbeddings();
+    console.log(`embeddings: ${missing.length} foods missing (pass ${pass})`);
+    if (!missing.length) return;
+    const chunks: string[][] = [];
+    for (let i = 0; i < missing.length; i += EMBED_LIMIT) chunks.push(missing.slice(i, i + EMBED_LIMIT));
+    let done = 0;
+    let next = 0;
+    await Promise.all(Array.from({ length: EMBED_PARALLEL }, async () => {
+      while (next < chunks.length) {
+        done += await embedChunk(chunks[next++]);
+        if (next % 50 === 0) console.log(`embeddings: ${done}/${missing.length}`);
+      }
+    }));
+    if (!done) throw new Error(`embed-worker made no progress; ${missing.length} foods still without an embedding`);
   }
 }
 if (EMBED_ONLY) {
@@ -75,6 +104,14 @@ const bool = (v: string) => /^(1|true|yes|y|t)$/i.test(v);
 import { UUID, uuidFor } from "./import_food_db_ids.ts";
 
 
+// foods.cuisine allows indian / south_indian / north_indian / australian / western / other (the pipeline's cuisine filter).
+// "global" foods get no cuisine, so no cuisine filter hides them.
+const CUISINES: Record<string, string | null> = {
+  indian: "indian", south_indian: "south_indian", north_indian: "north_indian", west_indian: "indian", indo_chinese: "indian",
+  australian: "australian", western: "western", european: "western", italian: "western", greek: "western", global: null,
+};
+const cuisineOf = (v: string) => (v ? (v.toLowerCase() in CUISINES ? CUISINES[v.toLowerCase()] : "other") : null);
+
 const TIERS = ["user", "recipe_calculated", "lab_verified", "community", "ai_estimate"];
 const UNITS: Record<string, string> = { roti: "roti", phulka: "roti", chapati: "roti", katori: "katori", bowl: "katori", ladle: "ladle", plate: "plate", piece: "piece", pc: "piece", slice: "piece", cup: "cup", glass: "glass", tbsp: "tbsp", tablespoon: "tbsp", tsp: "tsp", teaspoon: "tsp", scoop: "scoop", g: "g", gram: "g", serving: "serving" };
 
@@ -112,7 +149,7 @@ const foodRows = foods.map((row) => {
     notes: pick(row, "notes") || null,
     embed_text: pick(row, "embed_text") || null,
     is_dish: pick(row, "food_type").toLowerCase() === "dish" || bool(pick(row, "is_dish", "dish")) || tier === "recipe_calculated",
-    cuisine: pick(row, "cuisine", "region") || null,
+    cuisine: cuisineOf(pick(row, "cuisine", "region")),
     category: pick(row, "category", "group", "food_group") || null,
     aliases: aliasText ? aliasText.split(/[;|]/).map((a) => a.trim()).filter(Boolean) : [],
     confidence: tier === "lab_verified" || tier === "recipe_calculated" ? 0.95 : 0.8,
