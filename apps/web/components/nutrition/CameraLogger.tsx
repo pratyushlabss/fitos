@@ -47,6 +47,9 @@ export function CameraLogger({
   const nativeCamera = useRef<HTMLInputElement>(null);
   const handled = useRef(false);
   const [mode, setMode] = useState<Mode>("photo");
+  // The barcode scanner couldn't start a camera (no permission, no camera): offer typed digits instead.
+  const [scanFailed, setScanFailed] = useState(false);
+  const [digits, setDigits] = useState("");
   const [phase, setPhase] = useState<Phase>({ kind: "live" });
   const [cam, setCam] = useState<CamState>("starting");
   const [mealType, setMealType] = useState<MealType>(defaultMealType());
@@ -262,7 +265,7 @@ export function CameraLogger({
         ) : mode === "barcode" && phase.kind === "live" ? (
           <div className="flex h-full items-center justify-center px-4">
             <div className="w-full max-w-phone">
-              <BarcodeScanner onDetected={(code) => void handleBarcode(code)} />
+              <BarcodeScanner onDetected={(code) => void handleBarcode(code)} onError={() => setScanFailed(true)} />
             </div>
           </div>
         ) : null}
@@ -326,6 +329,27 @@ export function CameraLogger({
           </div>
         ) : mode === "barcode" && ownStream ? (
           <div className="h-36 w-72 rounded-2xl border-2 border-white/80" aria-hidden="true" />
+        ) : mode === "barcode" && scanFailed ? (
+          <form
+            className="w-full max-w-sm space-y-3 rounded-card border border-white/30 bg-black/80 p-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (digits.trim().length >= 8) void handleBarcode(digits.trim());
+            }}
+          >
+            <p className="text-sm text-white/80">The camera isn&apos;t available. Type the barcode digits instead:</p>
+            <input
+              inputMode="numeric"
+              autoComplete="off"
+              placeholder="Or type the barcode digits"
+              value={digits}
+              onChange={(event) => setDigits(event.target.value.replace(/\D/g, "").slice(0, 14))}
+              className="min-h-[44px] w-full rounded-full border border-white/30 bg-black/40 px-4 text-center text-base text-white outline-none placeholder:text-white/50"
+            />
+            <button type="submit" disabled={digits.trim().length < 8} className="press min-h-[44px] w-full rounded-full bg-white text-sm font-semibold text-black disabled:opacity-50">
+              Look up
+            </button>
+          </form>
         ) : null}
       </div>
 
@@ -355,7 +379,7 @@ export function CameraLogger({
               <p className="justify-self-center text-center text-xs text-white/80">Point at a barcode</p>
             )}
             <div className="flex justify-self-end rounded-full border border-white/30 bg-black/40 p-1" role="group" aria-label="Camera mode">
-              <button className={`press flex h-10 w-10 items-center justify-center rounded-full ${mode === "photo" ? "bg-white text-black" : ""}`} aria-label="Photo mode" aria-pressed={mode === "photo"} onClick={() => setMode("photo")}>
+              <button className={`press flex h-10 w-10 items-center justify-center rounded-full ${mode === "photo" ? "bg-white text-black" : ""}`} aria-label="Photo mode" aria-pressed={mode === "photo"} onClick={() => { setMode("photo"); setScanFailed(false); }}>
                 <Camera size={18} strokeWidth={1.5} />
               </button>
               <button className={`press flex h-10 w-10 items-center justify-center rounded-full ${mode === "barcode" ? "bg-white text-black" : ""}`} aria-label="Barcode mode" aria-pressed={mode === "barcode"} onClick={() => setMode("barcode")}>

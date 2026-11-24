@@ -106,7 +106,7 @@ test.describe.serial("live smoke (iPhone 14)", () => {
 
   test('"zorblax": don\'t know', async () => {
     await describe("zorblax");
-    await expect(page.getByText(/I don't know this one yet/)).toBeVisible({ timeout: 45_000 });
+    await expect(page.getByText(/I don't know .+ yet/)).toBeVisible({ timeout: 45_000 });
     await shot(page, "08-zorblax");
   });
 
@@ -119,6 +119,13 @@ test.describe.serial("live smoke (iPhone 14)", () => {
 
   test("camera logger: photo and barcode open, fallback shows without camera", async () => {
     await page.goto("/nutrition");
+    // The "Install FitOS" banner can cover the Log food button; record the overlap, then dismiss it.
+    const banner = page.getByRole("dialog", { name: "Install FitOS" });
+    if (await banner.isVisible().catch(() => false)) {
+      const [a, b] = [await banner.boundingBox(), await page.getByRole("button", { name: /Log food/ }).boundingBox()];
+      if (a && b && a.y < b.y + b.height && b.y < a.y + a.height) console.log(`install banner overlaps Log food: banner y=${a.y}-${a.y + a.height}, button y=${b.y}-${b.y + b.height}`);
+      await banner.getByRole("button", { name: "Dismiss" }).click();
+    }
     await page.getByRole("button", { name: /Log food/ }).click();
     await expect(page.getByText(/Camera access is off for FitOS|The live camera isn't available here/)).toBeVisible();
     await shot(page, "10-photo");

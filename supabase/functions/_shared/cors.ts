@@ -1,4 +1,5 @@
-const ALLOWED_ORIGINS = ["https://fitos.pages.dev", "http://localhost:3000", "http://127.0.0.1:3000"];
+// fitos.pages.dev belongs to another Cloudflare account; this project is fitos-3ka.pages.dev.
+const ALLOWED_ORIGINS = ["https://fitos-3ka.pages.dev", "http://localhost:3000", "http://127.0.0.1:3000"];
 
 // Local and LAN development on any port (a phone on the same Wi-Fi uses the Mac's 192.168.x.x address).
 // Every function still requires a valid user JWT, so this only decides which pages may read responses.
@@ -8,8 +9,8 @@ function allowedOrigin(origin: string | null): string {
   if (!origin) return ALLOWED_ORIGINS[0];
   if (ALLOWED_ORIGINS.includes(origin)) return origin;
   if (LOCAL_ORIGIN.test(origin)) return origin;
-  // Cloudflare preview deployments: https://<hash>.fitos.pages.dev
-  if (/^https:\/\/[a-z0-9-]+\.fitos\.pages\.dev$/.test(origin)) return origin;
+  // Cloudflare preview and branch deployments: https://<hash or branch>.fitos-3ka.pages.dev
+  if (/^https:\/\/[a-z0-9-]+\.fitos-3ka\.pages\.dev$/.test(origin)) return origin;
   return ALLOWED_ORIGINS[0];
 }
 

@@ -2,11 +2,14 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 
-export function BarcodeScanner({ onDetected }: { onDetected: (code: string) => void }) {
+// onError lets a full-screen parent show its own way out (typed digits) when the camera can't start.
+export function BarcodeScanner({ onDetected, onError }: { onDetected: (code: string) => void; onError?: (message: string) => void }) {
   const elementId = `scanner-${useId().replace(/:/g, "")}`;
   const [error, setError] = useState<string | null>(null);
   const detected = useRef(onDetected);
   detected.current = onDetected;
+  const failed = useRef(onError);
+  failed.current = onError;
 
   useEffect(() => {
     let stopped = false;
@@ -38,7 +41,9 @@ export function BarcodeScanner({ onDetected }: { onDetected: (code: string) => v
           () => undefined,
         );
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Camera unavailable. Allow camera access, or type the code below.");
+        const message = err instanceof Error ? err.message : "Camera unavailable. Allow camera access, or type the code below.";
+        setError(message);
+        failed.current?.(message);
       }
     })();
     return () => {
