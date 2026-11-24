@@ -43,9 +43,10 @@ export default function HomePage() {
 
   const score = recovery.data?.find((day) => day.day === today)?.recovery_score ?? null;
   const totals = totalsFor(meals.data ?? []);
-  const targets = targetsFor(profile);
   const lastWorkout = recent.data?.[0] ?? null;
   const todaysWorkout = lastWorkout && localDayKey(new Date(lastWorkout.started_at)) === today ? lastWorkout : null;
+  const trainedMinutes = (recent.data ?? []).filter((w) => w.completed_at && localDayKey(new Date(w.started_at)) === today).reduce((sum, w) => sum + (workoutDurationSeconds(w) ?? 0) / 60, 0);
+  const targets = targetsFor(profile, trainedMinutes);
   const friendPosts = (feed.data ?? []).filter((post) => post.user_id !== profile.id).slice(0, 3);
 
   const share: ShareCardData | null = lastWorkout

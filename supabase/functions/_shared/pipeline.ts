@@ -36,7 +36,16 @@ export type DraftItem = {
   match_score: number | null;
   ingredients: DraftIngredient[];
   servings: Serving[];
+  confidence_level?: "high" | "medium" | "low";
+  portion?: { min: number; typical: number; max: number } | null;
+  cooking_method?: string | null;
+  oil_for?: string | null; // key of the dish this oil line belongs to
+  oil_level?: OilLevel | null;
+  oil_base_grams?: number | null; // grams at "normal"
 };
+export type OilLevel = "none" | "light" | "normal" | "heavy";
+export const OIL_FACTOR: Record<OilLevel, number> = { none: 0, light: 0.5, normal: 1, heavy: 1.5 };
+export type QuickQuestion = { item_key: string; text: string; options: number[] };
 export type Draft = {
   analysis_id: string | null;
   input_type: "text" | "photo" | "barcode";
@@ -52,6 +61,7 @@ export type Draft = {
   ai_calls: number;
   candidates_count: number;
   notes?: string[];
+  quick_question?: QuickQuestion | null;
 };
 
 export type Candidate = {
@@ -636,7 +646,7 @@ export async function analyzeText(ctx: Ctx, text: string, meta: { meal_type?: Me
     const recipes = await loadDishIngredients(ctx, direct.filter((c) => c.is_dish).map((c) => c.food_id));
     const checked = await sanityCheck(ctx, parsed.map((p, i) => itemFromCandidate(direct[i], p.quantity, p.unit, null, recipes.get(direct[i].food_id), `d${i}`)));
     const items = checked.items;
-    const draft: Draft = { ...base, cuisine: direct[0].cuisine, confidence: summarize(items, 0.9), question: null, items, notes: checked.notes, cache_hit: false, ai_calls: 0, candidates_count: candidates.length };
+    const draft: Draft = { ...base, cuisine: direct[0].cuisine, confidence: summarize(items, 0.9), question: null, items, notes: checked.notes, quick_question: checked.quick, cache_hit: false, ai_calls: 0, candidates_count: candidates.length };
     return saveAnalysis(ctx, draft, { embedding: fullEmbedding, raw: { db_match: true }, latency: performance.now() - started });
   }
 
@@ -668,6 +678,7 @@ ${GUIDE}`;
     question: confidence < 0.6 ? ai.question : null,
     items: checked.items,
     notes: checked.notes,
+    quick_question: checked.quick,
     cache_hit: false,
     ai_calls: ctx.aiCalls,
     candidates_count: candidates.length,
@@ -697,8 +708,10 @@ export function checkPer100(per100: Per100, recomputeKcal: boolean): Per100 {
     out.fat_g = round1(out.fat_g * k);
     out.fibre_g = round1(out.fibre_g * k);
   }
-  const expected = 4 * out.protein_g + 4 * out.carbs_g + 9 * out.fat_g;
-  if (recomputeKcal && expected > 5 && Math.abs(out.kcal - expected) / expected > 0.15) out.kcal = Math.min(round1(expected), CAP.kcal);
+  if (out.fibre_g > out.carbs_g) out.fibre_g = out.carbs_g;
+  // Atwater: kcal within 10% of 4P + 4C + 9F (+ 7 x alcohol where known).
+  const expected = 4 * out.protein_g + 4 * out.carbs_g + 9 * out.fat_g + 7 * n((per100 as Per100 & { alcohol_g?: number }).alcohol_g);
+  if (recomputeKcal && expected > 5 && Math.abs(out.kcal - expected) / expected > 0.1) out.kcal = Math.min(round1(expected), CAP.kcal);
   return out;
 }
 
@@ -711,18 +724,38 @@ function cleanDishes(dishes: AiDish[]): AiDish[] {
   }));
 }
 
-type PortionRange = { unit: string; name_pattern: string | null; min_g: number; max_g: number; note: string | null };
-let rangesCache: { at: number; rows: PortionRange[] } | null = null;
+type PortionRange = { unit: string; name_pattern: string | null; min_g: number; max_g: number; typical_g: number | null; note: string | null };
+type Yield = { category: string; method: string; ratio: number };
+type DishMethod = { name_pattern: string; method: string; category: string | null };
+type Pref = { food_id: string; grams_per_unit: number | null; oil_level: OilLevel | null; corrections: number };
+export type Ref = { ranges: PortionRange[]; yields: Yield[]; fat: Record<string, number>; methods: DishMethod[]; prefs: Map<string, Pref> };
 
-async function portionRanges(ctx: Ctx): Promise<PortionRange[]> {
-  if (rangesCache && Date.now() - rangesCache.at < 10 * 60_000) return rangesCache.rows;
-  const { data, error } = await ctx.admin.from("portion_ranges").select("unit, name_pattern, min_g, max_g, note");
-  if (error) {
-    console.warn("portion_ranges unavailable", error.message);
-    return rangesCache?.rows ?? [];
+let refCache: { at: number; ref: Omit<Ref, "prefs"> } | null = null;
+
+async function loadRef(ctx: Ctx): Promise<Ref> {
+  if (!refCache || Date.now() - refCache.at > 10 * 60_000) {
+    const [ranges, yields, fat, methods] = await Promise.all([
+      ctx.admin.from("portion_ranges").select("unit, name_pattern, min_g, max_g, typical_g, note"),
+      ctx.admin.from("yield_factors").select("category, method, ratio"),
+      ctx.admin.from("fat_absorption").select("method, pct"),
+      ctx.admin.from("dish_methods").select("name_pattern, method, category"),
+    ]);
+    refCache = {
+      at: Date.now(),
+      ref: {
+        ranges: ((ranges.data ?? []) as PortionRange[]).map((r) => ({ ...r, min_g: n(r.min_g), max_g: n(r.max_g), typical_g: r.typical_g === null ? null : n(r.typical_g) })),
+        yields: ((yields.data ?? []) as Yield[]).map((y) => ({ ...y, ratio: n(y.ratio) })),
+        fat: Object.fromEntries(((fat.data ?? []) as Array<{ method: string; pct: number }>).map((f) => [f.method, n(f.pct)])),
+        methods: (methods.data ?? []) as DishMethod[],
+      },
+    };
   }
-  rangesCache = { at: Date.now(), rows: ((data ?? []) as PortionRange[]).map((r) => ({ ...r, min_g: n(r.min_g), max_g: n(r.max_g) })) };
-  return rangesCache.rows;
+  const prefs = new Map<string, Pref>();
+  if (ctx.userId) {
+    const { data } = await ctx.user.from("user_dish_prefs").select("food_id, grams_per_unit, oil_level, corrections").eq("user_id", ctx.userId).gte("corrections", 2);
+    for (const p of (data ?? []) as Pref[]) prefs.set(p.food_id, { ...p, grams_per_unit: p.grams_per_unit === null ? null : n(p.grams_per_unit) });
+  }
+  return { ...refCache.ref, prefs };
 }
 
 export function rangeFor(ranges: PortionRange[], name: string, unit: Unit): PortionRange | null {
@@ -740,17 +773,73 @@ function safeTest(pattern: string, name: string): boolean {
   }
 }
 
-export function applySanity(items: DraftItem[], ranges: PortionRange[]): { items: DraftItem[]; notes: string[] } {
+const CATEGORY_WORDS: Array<[string, RegExp]> = [
+  ["rice", /\b(rice|basmati|poha)\b/i],
+  ["millet", /\b(ragi|jowar|bajra|quinoa|millet)\b/i],
+  ["pulse", /\b(dal|lentil|gram|rajma|chana|chickpea|moong|toor|tur|urad|masoor|kidney bean)\b/i],
+  ["pasta", /\b(pasta|spaghetti|noodle|macaroni)\b/i],
+  ["oats", /\b(oats|oatmeal|porridge)\b/i],
+  ["meat", /\b(chicken|mutton|lamb|beef|pork|fish|prawn)\b/i],
+];
+const COOK_METHOD: Record<string, string> = { rice: "boiled", millet: "boiled", pulse: "cooked", pasta: "boiled", oats: "cooked", meat: "grilled" };
+const RAW_WORDS = /\b(raw|dry|dried|uncooked|unprocessed)\b/i;
+const FAT_WORDS = /\b(oil|ghee|butter|vanaspati|dalda)\b/i;
+const OIL_PER100: Per100 = { kcal: 884, protein_g: 0, carbs_g: 0, fat_g: 100, fibre_g: 0 };
+const COUNT_UNITS: Unit[] = ["roti", "piece"];
+
+export function methodFor(ref: Pick<Ref, "methods">, name: string): DishMethod | null {
+  return ref.methods.find((m) => safeTest(m.name_pattern, name)) ?? null;
+}
+
+function levelOf(confidence: number): "high" | "medium" | "low" {
+  return confidence >= 0.75 ? "high" : confidence >= 0.5 ? "medium" : "low";
+}
+
+function plural(name: string): string {
+  const base = name.toLowerCase().replace(/\s*\(.*\)$/, "");
+  return /s$/.test(base) ? base : `${base}s`;
+}
+
+// Deterministic macro engine. Every draft passes through here before it is returned.
+export function applySanity(items: DraftItem[], ref: Ref | PortionRange[]): { items: DraftItem[]; notes: string[]; quick: QuickQuestion | null } {
+  const r: Ref = Array.isArray(ref) ? { ranges: ref, yields: [], fat: {}, methods: [], prefs: new Map() } : ref;
   const notes: string[] = [];
   const kept: DraftItem[] = [];
   for (const original of items) {
+    // 1. Validation: caps, fibre <= carbs, Atwater within 10% for AI values.
+    const checkedPer100 = checkPer100(original.per100, original.source === "ai");
+    const recomputed = Math.abs(checkedPer100.kcal - n(original.per100.kcal)) > 0.5;
     const item: DraftItem = {
       ...original,
-      per100: checkPer100(original.per100, original.source === "ai"),
+      per100: checkedPer100,
       ingredients: original.ingredients.map((ing) => ({ ...ing, per100: checkPer100(ing.per100, ing.source === "ai") })),
     };
     const quantity = item.quantity > 0 ? item.quantity : 1;
-    const range = rangeFor(ranges, item.name, item.unit);
+
+    // 2. Raw database values for a food eaten cooked: per-100 g cooked = raw / yield ratio.
+    if (!item.ingredients.length && RAW_WORDS.test(item.name) && item.source !== "ai") {
+      const category = CATEGORY_WORDS.find(([, re]) => re.test(item.name))?.[0];
+      const y = category ? r.yields.find((x) => x.category === category && x.method === COOK_METHOD[category]) : undefined;
+      if (y && y.ratio > 0) {
+        const k = 1 / y.ratio;
+        item.per100 = { kcal: round1(item.per100.kcal * k), protein_g: round1(item.per100.protein_g * k), carbs_g: round1(item.per100.carbs_g * k), fat_g: round1(item.per100.fat_g * k), fibre_g: round1(item.per100.fibre_g * k) };
+        item.cooking_method = y.method;
+        notes.push(`${item.name}: raw values converted to ${y.method} (${y.ratio}× weight when cooked).`);
+      }
+    }
+
+    // 3. Learned portion for this user's version of the dish.
+    const pref = item.food_id ? r.prefs.get(item.food_id) : undefined;
+    if (pref?.grams_per_unit && item.unit !== "g") {
+      const factor = (pref.grams_per_unit * quantity) / Math.max(item.grams, 1);
+      item.grams = round1(pref.grams_per_unit * quantity);
+      item.ingredients = item.ingredients.map((ing) => ({ ...ing, grams: round1(ing.grams * factor) }));
+    }
+
+    // 4. Portion: clamp to the plausible range and expose min / typical / max for the slider.
+    const range = rangeFor(r.ranges, item.name, item.unit);
+    let portionCertainty = item.unit === "g" ? 1 : range ? 0.85 : 0.7;
+    if (pref?.grams_per_unit) portionCertainty = 0.95;
     if (range && item.grams > 0) {
       const each = item.grams / quantity;
       const clamped = Math.min(Math.max(each, range.min_g), range.max_g);
@@ -758,21 +847,75 @@ export function applySanity(items: DraftItem[], ranges: PortionRange[]): { items
         const factor = clamped / each;
         item.grams = round1(clamped * quantity);
         item.ingredients = item.ingredients.map((ing) => ({ ...ing, grams: round1(ing.grams * factor) }));
-        item.confidence = round1(item.confidence * 0.7 * 100) / 100;
+        portionCertainty = 0.5;
         notes.push(`${item.name}: ${Math.round(each)} g per ${item.unit} looked off, set to ${Math.round(clamped)} g (typical ${range.min_g}–${range.max_g} g).`);
       }
+      item.portion = { min: round1(range.min_g * quantity), typical: round1((range.typical_g ?? (range.min_g + range.max_g) / 2) * quantity), max: round1(range.max_g * quantity) };
+    } else if (item.unit !== "g" && item.grams > 0) {
+      item.portion = { min: round1(item.grams * 0.5), typical: item.grams, max: round1(item.grams * 1.8) };
     }
-    if (item.confidence < MIN_ITEM_CONFIDENCE) {
+
+    // 5. Confidence = match + portion certainty + validation.
+    const match = item.match_score ?? item.confidence;
+    item.confidence = Math.round((0.5 * Math.min(1, match) + 0.3 * portionCertainty + 0.2 * (recomputed ? 0.6 : 1)) * 100) / 100;
+    item.confidence_level = levelOf(item.confidence);
+    if (Math.min(1, match) < MIN_ITEM_CONFIDENCE) {
       notes.push(`Left out ${item.name}: not sure it was there. Add it back if it was.`);
       continue;
     }
+
+    // 6. Cooking fat as its own adjustable line: moved out of the recipe, or added from the method's absorption.
+    const method = methodFor(r, item.name);
+    item.cooking_method = item.cooking_method ?? method?.method ?? null;
+    let oil = 0;
+    let oilName = "Oil";
+    let oilFood: string | null = null;
+    const fats = item.ingredients.filter((ing) => FAT_WORDS.test(ing.name));
+    if (fats.length) {
+      oil = fats.reduce((sum, ing) => sum + ing.grams, 0);
+      oilName = /ghee/i.test(fats[0].name) ? "Ghee" : /butter/i.test(fats[0].name) ? "Butter" : "Oil";
+      oilFood = fats[0].food_id;
+      item.ingredients = item.ingredients.filter((ing) => !FAT_WORDS.test(ing.name));
+      item.grams = round1(Math.max(1, item.grams - oil));
+    } else if (method && (r.fat[method.method] ?? 0) > 0 && item.source === "ai" && !item.own) {
+      oil = ((r.fat[method.method] ?? 0) / 100) * item.grams;
+    }
     kept.push(item);
+    if (oil >= 1) {
+      const level: OilLevel = pref?.oil_level ?? "normal";
+      const base = round1(oil);
+      kept.push({
+        key: `${item.key}-oil`,
+        food_id: oilFood,
+        name: `${oilName} for ${item.name}`,
+        is_dish: false,
+        cuisine: item.cuisine,
+        quantity: round1(base * OIL_FACTOR[level]),
+        unit: "g",
+        grams: round1(base * OIL_FACTOR[level]),
+        per100: OIL_PER100,
+        source: "ai",
+        own: false,
+        confidence: item.confidence,
+        confidence_level: item.confidence_level,
+        match_score: null,
+        ingredients: [],
+        servings: [],
+        oil_for: item.key,
+        oil_level: level,
+        oil_base_grams: base,
+      });
+    }
   }
-  return { items: kept, notes };
+  const unsure = kept
+    .filter((k) => !k.oil_for && COUNT_UNITS.includes(k.unit) && k.confidence < 0.75)
+    .sort((a, b) => a.confidence - b.confidence)[0];
+  const quick = unsure ? { item_key: unsure.key, text: `How many ${plural(unsure.name)}?`, options: [1, 2, 3, 4] } : null;
+  return { items: kept, notes, quick };
 }
 
-async function sanityCheck(ctx: Ctx, items: DraftItem[]): Promise<{ items: DraftItem[]; notes: string[] }> {
-  return applySanity(items, await portionRanges(ctx));
+async function sanityCheck(ctx: Ctx, items: DraftItem[]): Promise<{ items: DraftItem[]; notes: string[]; quick: QuickQuestion | null }> {
+  return applySanity(items, await loadRef(ctx));
 }
 
 // ---------- analyze_photo: vision detects, retrieval grounds, the text model resolves ----------
@@ -923,6 +1066,7 @@ ${GUIDE}`,
     confidence,
     question: confidence < 0.6 ? question : null,
     items: checked.items,
+    quick_question: checked.quick,
     notes: secondLook ? ["Unsure photo: looked twice and kept what both looks agreed on.", ...checked.notes] : checked.notes,
     meal_type: meta.meal_type ?? null,
     date: meta.date ?? null,
@@ -968,7 +1112,19 @@ export async function confirmDraft(
   const source = ["search", "text_ai", "photo_ai", "barcode", "manual", "chat"].includes(input.source) ? input.source : "manual";
 
   const mealId = await mealIdFor(ctx.user, ctx.userId, input.date, input.meal_type);
-  const rows = items.map((item) => {
+  // Micronutrients come from the same deterministic calculation (compute_item), per food or per ingredient.
+  const microsFor = async (item: DraftItem): Promise<Record<string, number>> => {
+    const parts = item.ingredients.length ? item.ingredients.map((i) => ({ id: i.food_id, g: i.grams })) : [{ id: item.food_id, g: item.grams }];
+    const total: Record<string, number> = {};
+    for (const part of parts) {
+      if (!part.id || !(part.g > 0)) continue;
+      const { data } = await ctx.user.rpc("compute_item", { p_food_id: part.id, p_grams: part.g, p_method: null });
+      for (const [k, v] of Object.entries(((data ?? {}) as { micros?: Record<string, number> }).micros ?? {})) total[k] = (total[k] ?? 0) + n(v);
+    }
+    return total;
+  };
+  const micros = await Promise.all(items.map(microsFor));
+  const rows = items.map((item, index) => {
     const m = macrosFor(item);
     return {
       meal_id: mealId,
@@ -985,6 +1141,9 @@ export async function confirmDraft(
       source,
       source_version: item.source,
       confidence: Math.max(0, Math.min(1, item.confidence ?? 1)),
+      micros: micros[index],
+      oil_level: item.oil_level ?? null,
+      cooking_method: item.cooking_method ?? null,
       analysis_id: input.analysis_id,
     };
   });
@@ -1008,6 +1167,22 @@ export async function confirmDraft(
     const removed = original.filter((o) => !items.some((item) => item.key === o.key));
     for (const o of removed) corrections.push({ user_id: ctx.userId, analysis_id: input.analysis_id, food_id: o.food_id, original_payload: o, corrected_payload: { removed: true } as unknown as DraftItem });
     if (corrections.length) await ctx.user.from("user_corrections").insert(corrections);
+
+    // Per-user dish profile: corrected portion and oil level; after 2 corrections they become the default.
+    for (const item of items.filter((i) => i.food_id && !i.oil_for && i.unit !== "g" && changed(original.find((o) => o.key === i.key), i) || (i.oil_for && changed(original.find((o) => o.key === i.key), i)))) {
+      const dish = item.oil_for ? items.find((d) => d.key === item.oil_for) : item;
+      if (!dish?.food_id) continue;
+      const oilLine = items.find((o) => o.oil_for === dish.key);
+      const { data: prev } = await ctx.user.from("user_dish_prefs").select("corrections").eq("user_id", ctx.userId).eq("food_id", dish.food_id).maybeSingle();
+      await ctx.user.from("user_dish_prefs").upsert({
+        user_id: ctx.userId,
+        food_id: dish.food_id,
+        grams_per_unit: dish.unit !== "g" ? round1(dish.grams / Math.max(dish.quantity, 0.25)) : null,
+        oil_level: oilLine?.oil_level ?? null,
+        corrections: n(prev?.corrections) + 1,
+        updated_at: new Date().toISOString(),
+      });
+    }
     corrected = corrections.length;
     const finalDraft = { ...((analysis?.draft as Draft) ?? {}), items };
     await ctx.user

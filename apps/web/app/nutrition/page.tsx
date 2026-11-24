@@ -9,6 +9,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useProfile } from "@/components/auth/AuthProvider";
 import { AddFoodSheet } from "@/components/nutrition/AddFoodSheet";
 import { CameraLogger } from "@/components/nutrition/CameraLogger";
+import { listWorkouts } from "@/lib/data/workouts";
+import { workoutDurationSeconds } from "@/lib/logic/workout";
 import { ScreenHeader } from "@/components/shell/ScreenHeader";
 import { Button } from "@/components/ui/Button";
 import { Field, Segmented, SelectInput, TextInput } from "@/components/ui/Field";
@@ -54,7 +56,9 @@ export default function NutritionPage() {
 
   const meals = useQuery({ queryKey: ["meals", day], queryFn: () => getMealsForDay(day) });
   const totals = totalsFor(meals.data ?? []);
-  const targets = targetsFor(profile);
+  const dayWorkouts = useQuery({ queryKey: ["workouts", "day", day], queryFn: () => listWorkouts({ limit: 10 }) });
+  const trainedMinutes = (dayWorkouts.data ?? []).filter((w) => w.completed_at && localDayKey(new Date(w.started_at)) === day).reduce((sum, w) => sum + (workoutDurationSeconds(w) ?? 0) / 60, 0);
+  const targets = targetsFor(profile, trainedMinutes);
   const strip = useMemo(() => Array.from({ length: 7 }, (_, i) => shiftDay(day === today ? today : day, i - (day === today ? 6 : 3))).filter((d) => d <= today), [day, today]);
 
   function refreshDay(target = day) {

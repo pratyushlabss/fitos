@@ -123,6 +123,11 @@ export type Profile = {
   fat_target_g: number;
   timezone: string;
   onboarded_at: string | null;
+  sex?: "female" | "male" | "other" | null;
+  birth_year?: number | null;
+  activity_level?: "sedentary" | "light" | "moderate" | "active" | "very_active";
+  nudges_enabled?: boolean;
+  tdee_estimate?: number | null;
 };
 
 export type ProfileCard = {

@@ -1,5 +1,7 @@
 import type { Meal, MealType, Profile } from "@fitos/types";
 
+import { computeTargets, type TargetInput, trainingBonus } from "@/lib/logic/targets";
+
 export type MacroTotals = { calories: number; protein_g: number; carbs_g: number; fat_g: number; fibre_g: number };
 
 // No per-user fibre goal is stored; 30 g/day is the common adult guideline.
@@ -34,11 +36,12 @@ export function totalsFor(meals: Meal[]): MacroTotals {
   };
 }
 
-export function targetsFor(profile: Profile | null): MacroTotals {
+export function targetsFor(profile: Profile | null, trainedMinutes = 0): MacroTotals {
+  const bonus = trainingBonus(trainedMinutes);
   return {
-    calories: profile?.calorie_target ?? 2200,
+    calories: (profile?.calorie_target ?? 2200) + bonus.kcal,
     protein_g: profile?.protein_target_g ?? 160,
-    carbs_g: profile?.carbs_target_g ?? 250,
+    carbs_g: (profile?.carbs_target_g ?? 250) + bonus.carbs_g,
     fat_g: profile?.fat_target_g ?? 70,
     fibre_g: FIBRE_TARGET_G,
   };
@@ -67,18 +70,9 @@ export function recoveryLabel(score: number | null): string {
   return "Needs recovery";
 }
 
-export function suggestedTargets(input: { weightKg: number | null; goal: Profile["goal"] }): Pick<
-  Profile,
-  "calorie_target" | "protein_target_g" | "carbs_target_g" | "fat_target_g"
-> {
-  const weight = input.weightKg ?? 75;
-  const maintenance = Math.round(weight * 31);
-  const calories =
-    input.goal === "lose_fat" ? maintenance - 450 : input.goal === "build_muscle" ? maintenance + 250 : maintenance;
-  const protein = Math.round(weight * (input.goal === "endurance" ? 1.6 : 2.0));
-  const fat = Math.round((calories * 0.27) / 9);
-  const carbs = Math.max(50, Math.round((calories - protein * 4 - fat * 9) / 4));
-  return { calorie_target: calories, protein_target_g: protein, carbs_target_g: carbs, fat_target_g: fat };
+export function suggestedTargets(input: TargetInput): Pick<Profile, "calorie_target" | "protein_target_g" | "carbs_target_g" | "fat_target_g"> {
+  const t = computeTargets(input);
+  return { calorie_target: t.calorie_target, protein_target_g: t.protein_target_g, carbs_target_g: t.carbs_target_g, fat_target_g: t.fat_target_g };
 }
 
 export const GOALS: Array<{ value: NonNullable<Profile["goal"]>; label: string }> = [

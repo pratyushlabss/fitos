@@ -14,6 +14,7 @@ import { Field, Segmented, SelectInput, TextInput } from "@/components/ui/Field"
 import { addMeasurement } from "@/lib/data/body";
 import { isUsernameAvailable, normalizeUsername, updateMyProfile, uploadAvatar } from "@/lib/data/profile";
 import { GOALS, suggestedTargets } from "@/lib/logic/dashboard";
+import { ACTIVITY, type ActivityLevel, type Sex } from "@/lib/logic/targets";
 import { fromDisplayLength, fromDisplayWeight, lengthUnit, weightUnit } from "@/lib/logic/units";
 
 export default function OnboardingPage() {
@@ -29,6 +30,9 @@ export default function OnboardingPage() {
   const [visibility, setVisibility] = useState<Visibility>("friends");
   const [weight, setWeight] = useState("");
   const [height, setHeight] = useState("");
+  const [sex, setSex] = useState<Sex>("other");
+  const [birthYear, setBirthYear] = useState("");
+  const [activity, setActivity] = useState<ActivityLevel>("moderate");
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(profile.avatar_url);
   const [busy, setBusy] = useState(false);
@@ -65,7 +69,10 @@ export default function OnboardingPage() {
         default_visibility: visibility,
         height_cm: heightCm,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
-        ...suggestedTargets({ weightKg, goal }),
+        sex,
+        birth_year: birthYear ? Number(birthYear) : null,
+        activity_level: activity,
+        ...suggestedTargets({ weightKg, heightCm, goal, sex, activity, age: birthYear ? new Date().getFullYear() - Number(birthYear) : null }),
         onboarded_at: new Date().toISOString(),
       });
       if (weightKg) {
@@ -151,6 +158,27 @@ export default function OnboardingPage() {
           </Field>
         </div>
 
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Sex" hint="For the BMR formula.">
+            <SelectInput value={sex} onChange={(event) => setSex(event.target.value as Sex)}>
+              <option value="female">Female</option>
+              <option value="male">Male</option>
+              <option value="other">Prefer not to say</option>
+            </SelectInput>
+          </Field>
+          <Field label="Birth year">
+            <TextInput inputMode="numeric" value={birthYear} onChange={(event) => setBirthYear(event.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="1995" />
+          </Field>
+        </div>
+        <Field label="Activity">
+          <SelectInput value={activity} onChange={(event) => setActivity(event.target.value as ActivityLevel)}>
+            {ACTIVITY.map((a) => (
+              <option key={a.value} value={a.value}>
+                {a.label}
+              </option>
+            ))}
+          </SelectInput>
+        </Field>
         <Field label="Main goal" hint="Used to suggest calorie and protein targets. You can change them later.">
           <SelectInput value={goal} onChange={(event) => setGoal(event.target.value as Goal)}>
             {GOALS.map((option) => (

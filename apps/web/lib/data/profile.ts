@@ -21,6 +21,11 @@ function toProfile(row: Record<string, unknown>): Profile {
     fat_target_g: num(row.fat_target_g) || 70,
     timezone: String(row.timezone ?? "UTC"),
     onboarded_at: (row.onboarded_at as string | null) ?? null,
+    sex: (row.sex as Profile["sex"]) ?? null,
+    birth_year: row.birth_year === null || row.birth_year === undefined ? null : num(row.birth_year),
+    activity_level: (row.activity_level as Profile["activity_level"]) ?? "moderate",
+    nudges_enabled: row.nudges_enabled === undefined ? true : Boolean(row.nudges_enabled),
+    tdee_estimate: row.tdee_estimate === null || row.tdee_estimate === undefined ? null : num(row.tdee_estimate),
   };
 }
 

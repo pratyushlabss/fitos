@@ -176,5 +176,13 @@ SELECT t_check('anon cannot call private helper', t_err($$SELECT private.is_bloc
 SELECT t_check('anon cannot read portion_ranges', t_err($$SELECT * FROM portion_ranges$$) LIKE '%permission denied%');
 RESET ROLE;
 SELECT t_check('every public table has RLS', NOT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND NOT rowsecurity));
-SELECT t_check('portion_ranges seeded with unit defaults', (SELECT count(*) FROM portion_ranges WHERE name_pattern IS NULL) = 7 AND (SELECT count(*) FROM portion_ranges) >= 40);
+SELECT t_check('portion_ranges seeded with unit defaults', (SELECT count(*) FROM portion_ranges WHERE name_pattern IS NULL) = 10 AND (SELECT count(*) FROM portion_ranges) >= 40);
 SELECT t_check('dosa range 70-150 g', (SELECT min_g = 70 AND max_g = 150 FROM portion_ranges WHERE unit = 'piece' AND name_pattern = 'dosa'));
+SELECT t_check('compute_item scales and adds oil', (SELECT (public.compute_item(NULL::uuid, 200, 'deep_fried')->>'oil_g')::numeric = 24));
+SELECT t_check('bmr mifflin male 80kg 180cm 30y = 1780', private.bmr(80, 180, 30, 'male') = 1780);
+SELECT t_check('calorie floor female min 1200', private.calorie_floor(1100, 'female') = 1200);
+SELECT t_check('new macro tables have RLS', (SELECT bool_and(rowsecurity) FROM pg_tables WHERE tablename IN ('yield_factors','fat_absorption','dish_methods','food_densities','user_dish_prefs','coach_insights')));
+SELECT t_check('weekly_review runs', private.weekly_review() >= 0);
+SELECT t_check('adapt_targets runs', private.adapt_targets() >= 0);
+SELECT t_check('daily_nudges runs', private.daily_nudges() >= 0);
+SELECT t_check('promote_dishes runs', private.promote_dishes() >= 0);

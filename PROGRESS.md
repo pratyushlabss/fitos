@@ -366,3 +366,31 @@ Visual layer only. No data logic, Supabase calls, edge functions or routes chang
 - Cause 2: a 4-dish meal still hit the CPU limit.
 - Cause 3: counts were dropped (2 aloo paratha became 100 g).
 - Fixes: a compact repair call fills zero values; inline embeddings are cut to 6 and new foods are left to the scheduled worker; the prompt now has count rules and more typical values per 100 g.
+
+## Macro engine and adaptive targets (Parts A and B, 2026-11-24)
+
+- **Migration 013:** `yield_factors`, `fat_absorption`, `dish_methods`, `food_densities`, and `portion_ranges` with typical grams plus glass, scoop and tsp.
+  - Micronutrient columns on `food_nutrition`.
+  - Full-precision `meal_items` (numeric 12,4) with `micros`, `oil_level` and `cooking_method`.
+  - `compute_item(food_id, grams, method)`, `user_dish_prefs` and `coach_insights`.
+  - Profile fields: sex, birth_year, activity_level, nudges_enabled and tdee_estimate.
+  - Jobs: `private.adapt_targets` (Monday), `weekly_review` (Sunday), `daily_nudges` (hourly, fires at 7 pm local) and `promote_dishes` (Monday).
+  - Database tests: 103 PASS.
+- **Engine (`applySanity`, deterministic):**
+  - Raw database values become cooked values through yield factors.
+  - Cooking fat becomes its own line with none, light, normal and heavy levels. Fat is moved out of AI recipes, or added from absorption for fried, tawa and tadka dishes.
+  - Atwater check within 10% (with alcohol), fibre ≤ carbs, physical caps.
+  - Portions get min, typical and max values for the slider.
+  - Confidence = 0.5 match + 0.3 portion certainty + 0.2 validation, shown as high, medium or low.
+  - Counted items that aren't high confidence get a "How many rotis?" chip question.
+  - Learned per-user portion and oil level apply after 2 corrections.
+- **Confirm:** micronutrients are computed with `compute_item` per food or ingredient and stored in `meal_items.micros`.
+- **Targets:**
+  - Mifflin-St Jeor BMR × activity = TDEE. Cut −18%, lean bulk +7%.
+  - Protein 1.6–2.2 g/kg by goal, fat ≥ 0.6 g/kg, carbs the rest.
+  - Floors: max(BMR, 1200 for women or 1500 for men), and loss no faster than 1% of bodyweight a week.
+  - Onboarding asks sex, birth year and activity.
+  - Training days add 1 g carbs per minute trained, up to 60 g.
+- **Adaptive TDEE:** intake minus the weight slope × 7700, from ≥ 10 logged days and ≥ 4 weigh-ins in 21 days. Targets move at most ±150 kcal a week, with a `target_change` insight explaining why.
+- **Unit tests:** 26 of 26 pass. They cover yield conversion, the puri oil line, ghee moved out of dal, fibre ≤ carbs, Atwater, method lookup and the chip question.
+- The text eval rerun after the zero-kcal fix was invalid. Half its cases hit the per-user cap of 30 calls a day because both runs reused one account. Eval runs now use a fresh account each time.
