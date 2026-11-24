@@ -337,3 +337,18 @@ Visual layer only. No data logic, Supabase calls, edge functions or routes chang
 - **Live data:** deleted 28 unreferenced AI foods created by test probes, including "Dal" at 238 kcal per 100 g and "2 rotis" at 353. Pending test analyses were discarded.
 
 **Verified live:** "2 rotis with dal and a katori of rice" now gives Roti 80 g 224 kcal, Dal 150 g 193 kcal (was 357) and Rice 150 g 181 kcal. A meat pie no longer crashes the function. The photo uses two models with no duplicate fat lines. Tests: 19 unit checks pass, and the database tests show 95 PASS.
+
+## Food AI fix: Phase 3, camera-first logging (2026-11-24)
+
+- `components/nutrition/CameraLogger.tsx`: a floating "Log food" button on Nutrition opens a full-screen camera (`getUserMedia`, environment camera).
+  - Shutter, gallery, photo or barcode mode, torch where the track supports it.
+  - "Type it instead" and "Search" open the existing Describe and Search tabs.
+  - The meal is preselected from the time of day and can be changed.
+- **Barcode:** live `BarcodeDetector` where available, otherwise the html5-qrcode scanner.
+- **Camera blocked:** when permission is denied or `getUserMedia` fails, it falls back to `<input capture="environment">`, which opens the phone's camera.
+- **Stream stops:** on close, when the tab is hidden, and on `pagehide`.
+- **Analysing:** the captured photo with a scan line, then a full-screen review. Items can be edited and removed, and the new "Add item" searches the food database.
+- **Verified with Playwright** against the live backend, using Chromium's fake camera:
+  - The video goes live with the meal preselected. The shutter leads to analysing and then the "No food found" error state, and "Try again" returns to the camera.
+  - Closing removes the stream, and permission-denied shows the native camera fallback.
+  - Going over the Groq per-minute token limit showed "AI busy, try again or log manually".

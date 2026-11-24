@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { useProfile } from "@/components/auth/AuthProvider";
 import { AddFoodSheet } from "@/components/nutrition/AddFoodSheet";
+import { CameraLogger } from "@/components/nutrition/CameraLogger";
 import { ScreenHeader } from "@/components/shell/ScreenHeader";
 import { Button } from "@/components/ui/Button";
 import { Field, Segmented, SelectInput, TextInput } from "@/components/ui/Field";
@@ -41,6 +42,8 @@ export default function NutritionPage() {
   const today = localDayKey();
   const [day, setDay] = useState(today);
   const [adding, setAdding] = useState<MealType | null>(null);
+  const [addTab, setAddTab] = useState<"search" | "describe">("search");
+  const [camera, setCamera] = useState(false);
   const [itemMenu, setItemMenu] = useState<MealItem | null>(null);
   const [mealMenu, setMealMenu] = useState<Meal | null>(null);
 
@@ -183,10 +186,34 @@ export default function NutritionPage() {
         })}
       </div>
 
+      <button
+        className="press fixed bottom-[calc(env(safe-area-inset-bottom)+76px)] right-[max(1rem,calc((100vw-430px)/2+1rem))] z-30 inline-flex min-h-[56px] items-center gap-2 rounded-full bg-max px-5 text-sm font-semibold text-bg"
+        onClick={() => setCamera(true)}
+      >
+        <Plus size={20} strokeWidth={2} /> Log food
+      </button>
+      <CameraLogger
+        open={camera}
+        onClose={() => setCamera(false)}
+        day={day}
+        onLogged={(message) => {
+          toast(message, "success");
+          refreshDay();
+        }}
+        onUseTab={(tab, mealType) => {
+          setCamera(false);
+          setAddTab(tab);
+          setAdding(mealType);
+        }}
+      />
       <AddFoodSheet
         open={adding !== null}
-        onClose={() => setAdding(null)}
+        onClose={() => {
+          setAdding(null);
+          setAddTab("search");
+        }}
         day={day}
+        initialTab={addTab}
         mealType={adding ?? defaultMealType()}
         onLogged={(message) => {
           toast(message, "success");

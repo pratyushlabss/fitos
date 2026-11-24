@@ -1,15 +1,15 @@
 "use client";
 
 import type { DraftItem, FoodDraft, MealItemSource, MealType, ServingUnit } from "@fitos/types";
-import { useMutation } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight, Sparkles, Trash2, Zap } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { ChevronDown, ChevronRight, Plus, Sparkles, Trash2, Zap } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { Segmented } from "@/components/ui/Field";
-import { confirmDraft, discardDraft } from "@/lib/data/nutrition";
+import { confirmDraft, discardDraft, searchFoods } from "@/lib/data/nutrition";
 import { MEAL_LABELS, MEAL_TYPES } from "@/lib/logic/dashboard";
-import { macrosFor, round1, SOURCE_BADGE, sumMacros, UNIT_LABEL, withAmount } from "@/lib/logic/nutrition";
+import { defaultPortion, draftItemFromHit, macrosFor, round1, SOURCE_BADGE, sumMacros, UNIT_LABEL, withAmount } from "@/lib/logic/nutrition";
 
 const numberInput =
   "w-full rounded-lg border border-white/10 bg-slate-950/70 px-2 py-1.5 text-center text-base text-white outline-none focus:border-emerald-300/40";
@@ -227,6 +227,8 @@ export function DraftReview({
       </div>
 
       <Segmented value={mealType} onChange={setMealType} options={MEAL_TYPES.map((type) => ({ value: type, label: MEAL_LABELS[type] }))} />
+      <AddItem onAdd={(item) => setItems([...items, item])} />
+
       {save.isError ? <p className="text-sm text-rose-300">{save.error.message}</p> : null}
       <div className="grid grid-cols-2 gap-2">
         <Button
@@ -242,6 +244,61 @@ export function DraftReview({
           {save.isPending ? "Saving…" : "Save to log"}
         </Button>
       </div>
+    </div>
+  );
+}
+
+// Anything the AI missed: search the food database and append it to the draft.
+function AddItem({ onAdd }: { onAdd: (item: DraftItem) => void }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const [debounced, setDebounced] = useState("");
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(q.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [q]);
+  const results = useQuery({ queryKey: ["draft-add", debounced], queryFn: () => searchFoods(debounced), enabled: open && debounced.length >= 2 });
+
+  if (!open) {
+    return (
+      <button type="button" className="press flex min-h-[44px] w-full items-center justify-center gap-2 rounded-[14px] border border-dashed border-line text-sm text-fg/80" onClick={() => setOpen(true)}>
+        <Plus size={16} strokeWidth={1.5} /> Add item
+      </button>
+    );
+  }
+  return (
+    <div className="space-y-2 rounded-[14px] border border-line p-3">
+      <input
+        autoFocus
+        className={`${numberInput} text-left`}
+        placeholder="Search a food to add"
+        value={q}
+        onChange={(event) => setQ(event.target.value)}
+        aria-label="Search a food to add"
+      />
+      {results.isFetching ? <p className="text-xs text-muted">Searching…</p> : null}
+      <div className="max-h-56 space-y-1 overflow-y-auto">
+        {(results.data ?? []).slice(0, 8).map((hit) => (
+          <button
+            key={hit.food_id}
+            type="button"
+            className="press flex min-h-[44px] w-full items-center justify-between gap-2 rounded-lg px-2 text-left text-sm text-fg hover:bg-white/5"
+            onClick={() => {
+              const portion = defaultPortion(hit);
+              onAdd(draftItemFromHit(hit, portion.quantity, portion.unit, `a${Date.now()}`));
+              setOpen(false);
+              setQ("");
+            }}
+          >
+            <span className="truncate">{hit.name}</span>
+            <span className="num shrink-0 text-xs text-muted">{Math.round(Number(hit.kcal ?? 0))} kcal/100g</span>
+          </button>
+        ))}
+        {debounced.length >= 2 && !results.isFetching && !(results.data ?? []).length ? <p className="text-xs text-muted">No match. Use Manual in Add food to create it.</p> : null}
+      </div>
+      <button type="button" className="press min-h-[44px] w-full text-xs text-muted" onClick={() => setOpen(false)}>
+        Cancel
+      </button>
     </div>
   );
 }
