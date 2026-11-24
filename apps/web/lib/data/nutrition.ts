@@ -246,7 +246,7 @@ export async function createMyFood(input: {
   name: string;
   servingUnit: ServingUnit;
   servingGrams: number;
-  perServing: { kcal: number; protein_g: number; carbs_g: number; fat_g: number; fibre_g: number };
+  perServing: { kcal: number; protein_g: number; carbs_g: number; fat_g: number; fibre_g: number; sugar_g?: number | null; sodium_mg?: number | null };
 }): Promise<FoodHit> {
   const userId = await currentUserId();
   const food = unwrap(
@@ -265,6 +265,8 @@ export async function createMyFood(input: {
       carbs_g: round1(input.perServing.carbs_g * f),
       fat_g: round1(input.perServing.fat_g * f),
       fiber_g: round1(input.perServing.fibre_g * f),
+      sugar_g: input.perServing.sugar_g == null ? null : round1(input.perServing.sugar_g * f),
+      sodium_mg: input.perServing.sodium_mg == null ? null : round1(input.perServing.sodium_mg * f),
       source: "user",
       confidence: 1,
     }),

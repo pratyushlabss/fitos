@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Copy,
   Download,
+  Info,
   LogOut,
   MessageCircle,
   Moon,
@@ -37,6 +38,7 @@ import { signOut } from "@/lib/data/auth";
 import { listMeasurements } from "@/lib/data/body";
 import { exportMyData } from "@/lib/data/export";
 import { getProfileCard, updateMyProfile, uploadAvatar } from "@/lib/data/profile";
+import dataSources from "@/lib/dataSources.json";
 import { GOALS } from "@/lib/logic/dashboard";
 import { formatVolume, formatWeight } from "@/lib/logic/units";
 
@@ -51,6 +53,7 @@ export default function ProfilePage() {
   const [qrOpen, setQrOpen] = useState(false);
   const [qr, setQr] = useState<string | null>(null);
   const [integrations, setIntegrations] = useState(false);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
   const [profileLink, setProfileLink] = useState("");
 
   useEffect(() => setProfileLink(`${window.location.origin}/social/profile?id=${profile.id}`), [profile.id]);
@@ -230,6 +233,11 @@ export default function ProfilePage() {
                 <ChevronRight size={16} className="text-slate-500" />
               </Link>
             ))}
+            <button className="flex min-h-[44px] w-full items-center gap-3 py-3 text-left text-sm text-white" onClick={() => setSourcesOpen(true)}>
+              <Info size={16} className="text-emerald-300" />
+              <span className="flex-1">About and data sources</span>
+              <ChevronRight size={16} className="text-slate-500" />
+            </button>
           </div>
         </SectionCard>
 
@@ -254,6 +262,22 @@ export default function ProfilePage() {
             <Skeleton className="h-60 w-60" />
           )}
           <p className="text-center text-sm text-slate-400">Friends scan this with their camera to open your profile and follow you.</p>
+        </div>
+      </Sheet>
+
+      <Sheet open={sourcesOpen} onClose={() => setSourcesOpen(false)} title="Data sources">
+        <div className="space-y-3 pb-2 text-sm leading-6 text-fg/90">
+          <p>Nutrient values come only from the FitOS food database. The AI identifies foods and portions; every number is calculated from database rows.</p>
+          {dataSources.sources.length ? (
+            <ul className="list-disc space-y-1 pl-5 text-xs">
+              {dataSources.sources.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-xs text-muted">Attribution appears here after the food database is imported (scripts/import_food_db.ts).</p>
+          )}
+          <p className="text-xs text-muted">Barcode products: Open Food Facts, ODbL.</p>
         </div>
       </Sheet>
 

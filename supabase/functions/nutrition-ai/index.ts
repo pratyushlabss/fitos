@@ -5,7 +5,7 @@ import { AiError, aiInfo, callLimits } from "../_shared/ai.ts";
 import { authenticate, serviceClient } from "../_shared/auth.ts";
 import { coachReply } from "../_shared/coach.ts";
 import { corsHeaders, fail, json, preflight } from "../_shared/cors.ts";
-import { analyzePhoto, analyzeText, confirmDraft, createCtx, type MealType, searchFoods, THRESHOLDS } from "../_shared/pipeline.ts";
+import { analyzePhoto, analyzeText, confirmDraft, createCtx, type MealType, previewMatch, searchFoods, THRESHOLDS } from "../_shared/pipeline.ts";
 
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const ADMIN_USER_ID = Deno.env.get("ADMIN_USER_ID") ?? "";
@@ -69,6 +69,8 @@ Deno.serve(async (req) => {
         await auth.userClient.from("food_analyses").update({ status: "discarded" }).eq("id", String(body.analysis_id ?? "")).eq("status", "pending");
         return json(req, { ok: true });
       }
+      case "preview":
+        return json(req, await previewMatch(ctx, String(body.text ?? "")));
       case "search":
         return json(req, { results: await searchFoods(ctx, String(body.q ?? ""), (body.cuisine as string) ?? null, Number(body.k) || 15) });
       case "chat":

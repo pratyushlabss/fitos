@@ -186,3 +186,8 @@ SELECT t_check('weekly_review runs', private.weekly_review() >= 0);
 SELECT t_check('adapt_targets runs', private.adapt_targets() >= 0);
 SELECT t_check('daily_nudges runs', private.daily_nudges() >= 0);
 SELECT t_check('promote_dishes runs', private.promote_dishes() >= 0);
+INSERT INTO foods (name, owner_id, source, verified, tier) VALUES ('Zesttest kheer', NULL, 'community', FALSE, 'community'), ('Zesttest kheer', NULL, 'IFCT 2017', TRUE, 'lab_verified');
+SELECT t_check('lab row outranks community with same name', (SELECT tier FROM match_foods('zesttest kheer') LIMIT 1) = 'lab_verified');
+INSERT INTO foods (name, source) VALUES ('Zesttest ai dish', 'ai');
+SELECT t_check('ai source defaults to ai_estimate tier', (SELECT tier FROM foods WHERE name = 'Zesttest ai dish') = 'ai_estimate');
+SELECT t_check('food_vocabulary has words', EXISTS (SELECT 1 FROM food_vocabulary() WHERE word = 'zesttest'));

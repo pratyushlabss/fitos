@@ -67,11 +67,27 @@ export function draftItemFromHit(hit: FoodHit, quantity: number, unit: ServingUn
     per100: per100FromHit(hit),
     source: hit.is_own ? "user" : hit.source,
     own: hit.is_own,
+    tier: hit.tier ?? null,
+    energy_check: hit.energy_check ?? null,
+    source_ref: hit.source_ref ?? null,
     confidence: 1,
     match_score: hit.score ?? null,
     ingredients: [],
     servings: hit.servings,
   };
+}
+
+// Badge from the food's tier and source: IFCT / USDA / BLS / Recipe / Unverified / Mine / AI estimate.
+export function badgeLabel(item: { source: FoodSource | string; tier?: string | null; own?: boolean; is_own?: boolean; source_ref?: string | null }): string {
+  if (item.own || item.is_own || item.tier === "user" || item.source === "user") return "Mine";
+  if (item.tier === "ai_estimate" || item.source === "ai") return "AI estimate";
+  if (item.tier === "recipe_calculated") return "Recipe";
+  if (item.tier === "community" || item.source === "barcode") return "Unverified";
+  const text = `${item.source} ${item.source_ref ?? ""}`;
+  if (/ifct/i.test(text)) return "IFCT";
+  if (/usda|fdc/i.test(text)) return "USDA";
+  if (/\bbls\b|bundeslebensmittel/i.test(text)) return "BLS";
+  return "Verified";
 }
 
 export const SOURCE_BADGE: Record<FoodSource, { label: string; className: string }> = {

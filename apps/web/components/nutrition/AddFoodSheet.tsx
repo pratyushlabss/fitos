@@ -85,6 +85,21 @@ export function AddFoodSheet({
                 }
               : undefined
           }
+          onClarify={(option) => {
+            const original = review.text ?? review.draft.input_text ?? "";
+            const unknown = review.draft.unknown ?? [];
+            const parts = original.split(/(,|;|\+|&|\band\b|\bwith\b)/i);
+            const text = parts.map((part) => (unknown.some((w) => part.toLowerCase().includes(w.toLowerCase())) ? ` ${option} ` : part)).join("").replace(/\s+/g, " ").trim();
+            void analyzeText(text, mealType, day).then(({ draft }) => setReview({ draft, source: "text_ai", text }));
+          }}
+          onManual={() => {
+            setReview(null);
+            setTab("manual");
+          }}
+          onDescribe={() => {
+            setReview(null);
+            setTab("describe");
+          }}
         />
       ) : (
         <div className="space-y-3 pb-2">
@@ -158,7 +173,7 @@ function HitList({ hits, onPick, picked }: { hits: FoodHit[]; onPick: (hit: Food
             <span className="min-w-0">
               <span className="block truncate text-sm font-medium text-white">{hit.name}</span>
               <span className="mt-0.5 flex items-center gap-1.5 text-xs text-slate-500">
-                <SourceBadge source={hit.is_own ? "user" : hit.source} />
+                <SourceBadge source={hit.is_own ? "user" : hit.source} tier={hit.tier} own={hit.is_own} source_ref={hit.source_ref} energy_check={hit.energy_check} />
                 {hit.kcal !== null ? `${Math.round(hit.kcal)} kcal / 100 g` : "no nutrition yet"}
               </span>
             </span>
@@ -385,7 +400,7 @@ function BarcodeTab({ onDraft, onManual }: { onDraft: (review: Review) => void; 
 }
 
 function ManualTab({ day, mealType, onLogged }: { day: string; mealType: MealType; onLogged: (message: string) => void }) {
-  const [form, setForm] = useState({ name: "", unit: "serving" as ServingUnit, grams: "100", kcal: "", protein: "", carbs: "", fat: "", fibre: "", eaten: "1" });
+  const [form, setForm] = useState({ name: "", unit: "serving" as ServingUnit, grams: "100", kcal: "", protein: "", carbs: "", fat: "", fibre: "", eaten: "1", sugar: "", sodium: "" });
   const set = (key: keyof typeof form) => (event: { target: { value: string } }) =>
     setForm({ ...form, [key]: key === "name" || key === "unit" ? event.target.value : event.target.value.replace(/[^\d.]/g, "") });
   const save = useMutation({
@@ -394,7 +409,15 @@ function ManualTab({ day, mealType, onLogged }: { day: string; mealType: MealTyp
         name: form.name,
         servingUnit: form.unit,
         servingGrams: Number(form.grams) || 100,
-        perServing: { kcal: Number(form.kcal) || 0, protein_g: Number(form.protein) || 0, carbs_g: Number(form.carbs) || 0, fat_g: Number(form.fat) || 0, fibre_g: Number(form.fibre) || 0 },
+        perServing: {
+          kcal: Number(form.kcal) || 0,
+          protein_g: Number(form.protein) || 0,
+          carbs_g: Number(form.carbs) || 0,
+          fat_g: Number(form.fat) || 0,
+          fibre_g: Number(form.fibre) || 0,
+          sugar_g: form.sugar === "" ? null : Number(form.sugar),
+          sodium_mg: form.sodium === "" ? null : Number(form.sodium),
+        },
       });
       const quantity = Number(form.eaten) || 1;
       const unit: ServingUnit = form.unit === "g" ? "g" : form.unit;
@@ -403,6 +426,9 @@ function ManualTab({ day, mealType, onLogged }: { day: string; mealType: MealTyp
     },
     onSuccess: (hit) => onLogged(`Saved ${hit.name} to My foods and logged it`),
   });
+  // Atwater check: kcal vs 4P + 4C + 9F; warn (don't block) when more than 15% off.
+  const atwaterKcal = 4 * (Number(form.protein) || 0) + 4 * (Number(form.carbs) || 0) + 9 * (Number(form.fat) || 0);
+  const atwaterOff = atwaterKcal > 5 && Math.abs((Number(form.kcal) || 0) - atwaterKcal) / atwaterKcal > 0.15;
   return (
     <form
       className="space-y-3"
@@ -445,6 +471,19 @@ function ManualTab({ day, mealType, onLogged }: { day: string; mealType: MealTyp
           </label>
         ))}
       </div>
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="Sugar g (optional)">
+          <TextInput inputMode="decimal" value={form.sugar} onChange={set("sugar")} />
+        </Field>
+        <Field label="Sodium mg (optional)">
+          <TextInput inputMode="decimal" value={form.sodium} onChange={set("sodium")} />
+        </Field>
+      </div>
+      {atwaterOff ? (
+        <p className="rounded-[14px] border border-dashed border-fg/60 p-2 text-xs text-fg" role="status">
+          {Number(form.kcal) || 0} kcal is more than 15% off what the macros add up to ({Math.round(atwaterKcal)} kcal). Check the label before saving.
+        </p>
+      ) : null}
       <Field label="Servings eaten now">
         <TextInput inputMode="decimal" value={form.eaten} onChange={set("eaten")} />
       </Field>

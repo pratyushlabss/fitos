@@ -255,6 +255,9 @@ export type FoodHit = {
   serving_grams: number | null;
   servings: Serving[];
   score?: number;
+  tier?: "user" | "recipe_calculated" | "lab_verified" | "community" | "ai_estimate" | null;
+  energy_check?: "ok" | "flag" | null;
+  source_ref?: string | null;
 };
 
 export type DraftIngredient = { food_id: string | null; name: string; grams: number; per100: Per100; source: FoodSource; notes: string | null };
@@ -281,6 +284,9 @@ export type DraftItem = {
   oil_for?: string | null;
   oil_level?: "none" | "light" | "normal" | "heavy" | null;
   oil_base_grams?: number | null;
+  tier?: "user" | "recipe_calculated" | "lab_verified" | "community" | "ai_estimate" | null;
+  energy_check?: "ok" | "flag" | null;
+  source_ref?: string | null;
 };
 
 export type FoodDraft = {
@@ -300,6 +306,10 @@ export type FoodDraft = {
   // Server sanity-check notes: adjusted portions, dropped low-confidence items, second look.
   notes?: string[];
   quick_question?: { item_key: string; text: string; options: number[] } | null;
+  status?: "ok" | "clarify" | "no_match";
+  options?: string[];
+  unknown?: string[];
+  message?: string | null;
 };
 
 export type NutritionDay = {

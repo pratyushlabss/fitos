@@ -260,6 +260,8 @@ async function runTool(ctx: Ctx, name: string, args: Record<string, unknown>, to
     case "draft_log": {
       const mealType = (["breakfast", "lunch", "dinner", "snacks"].includes(String(args.meal_type)) ? args.meal_type : defaultMeal(ctx.timezone)) as MealType;
       const draft = await analyzeText(ctx, String(args.text ?? ""), { meal_type: mealType, date: date(args.date) });
+      if (draft.status === "clarify") return { result: { status: "clarify", question: draft.question, options: draft.options } };
+      if (draft.status === "no_match") return { result: { status: "unknown_food", message: draft.message, offer: "manual entry or describe the ingredients" } };
       const items = draft.items.map((item) => ({ name: item.name, grams: Math.round(item.grams), ...rounded(macrosFor(item)) }));
       return { result: { draft_id: draft.analysis_id, meal_type: mealType, items, total: rounded(sum(draft.items.map(macrosFor))), question: draft.question ?? draft.quick_question?.text ?? null }, draft };
     }

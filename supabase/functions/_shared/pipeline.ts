@@ -36,6 +36,9 @@ export type DraftItem = {
   match_score: number | null;
   ingredients: DraftIngredient[];
   servings: Serving[];
+  tier?: string | null;
+  energy_check?: string | null;
+  source_ref?: string | null;
   confidence_level?: "high" | "medium" | "low";
   portion?: { min: number; typical: number; max: number } | null;
   cooking_method?: string | null;
@@ -44,7 +47,7 @@ export type DraftItem = {
   oil_base_grams?: number | null; // grams at "normal"
 };
 export type OilLevel = "none" | "light" | "normal" | "heavy";
-export const OIL_FACTOR: Record<OilLevel, number> = { none: 0, light: 0.5, normal: 1, heavy: 1.5 };
+export const OIL_FACTOR: Record<OilLevel, number> = { none: 0, light: 0.5, normal: 1, heavy: 1.8 };
 export type QuickQuestion = { item_key: string; text: string; options: number[] };
 export type Draft = {
   analysis_id: string | null;
@@ -62,6 +65,11 @@ export type Draft = {
   candidates_count: number;
   notes?: string[];
   quick_question?: QuickQuestion | null;
+  // "clarify": a real food word mixed with unknown words; "no_match": nothing known. Items are empty then.
+  status?: "ok" | "clarify" | "no_match";
+  options?: string[];
+  unknown?: string[];
+  message?: string | null;
 };
 
 export type Candidate = {
@@ -81,6 +89,10 @@ export type Candidate = {
   servings: Serving[];
   score: number;
   rrf: number;
+  tier?: string | null;
+  energy_check?: string | null;
+  source_ref?: string | null;
+  external_id?: string | null;
 };
 
 export type Ctx = { userId: string | null; user: SupabaseClient; admin: SupabaseClient; aiCalls: number; guard: Guard; timezone: string; embeddings: Map<string, number[]> };
@@ -196,7 +208,7 @@ export function gramsFor(quantity: number, unit: Unit | null, servings: Serving[
   if (unit === "g") return { unit: "g", grams: quantity };
   const pick =
     (unit && (servings.find((s) => s.unit === unit && s.specific) ?? servings.find((s) => s.unit === unit))) ||
-    (!unit ? servings.find((s) => s.specific && s.unit !== "g") : undefined);
+    (!unit ? servings.find((s) => s.specific && s.unit !== "g") ?? servings.find((s) => s.unit !== "g" && s.unit !== "serving") : undefined);
   if (pick) return { unit: pick.unit, grams: round1(quantity * n(pick.grams)) };
   return { unit: "serving", grams: round1(quantity * (n(servingGrams) || 100)) };
 }
@@ -281,6 +293,9 @@ function itemFromCandidate(c: Candidate, quantity: number, unit: Unit | null, gr
     match_score: c.score,
     ingredients,
     servings: c.servings,
+    tier: c.tier ?? null,
+    energy_check: c.energy_check ?? null,
+    source_ref: c.source_ref ?? null,
   };
 }
 
@@ -399,23 +414,13 @@ function toPer100(value: unknown): Per100 {
   return per100Of((value ?? {}) as Per100);
 }
 
-function normalizeDishes<T extends { per100: unknown; ingredients: Array<{ per100: unknown }> }>(dishes: T[]): T[] {
-  return dishes.map((dish) => ({
-    ...dish,
-    per100: toPer100(dish.per100),
-    ingredients: (dish.ingredients ?? []).map((ing) => ({ ...ing, per100: toPer100(ing.per100) })),
-  }));
-}
 const INGREDIENT: JsonSchema = {
   type: "object",
   properties: {
-    name: { type: "string" },
-    matched_food_id: { type: ["string", "null"], description: "id from the candidate list, or null" },
-    grams: { type: "number", description: "raw grams for the whole amount eaten" },
-    notes: { type: ["string", "null"] },
-    per100: PER100,
+    matched_food_id: { type: "string", description: "id from the candidate list" },
+    grams: { type: "number", description: "grams of this ingredient in the amount eaten" },
   },
-  required: ["name", "matched_food_id", "grams", "notes", "per100"],
+  required: ["matched_food_id", "grams"],
 };
 const CUISINE_ENUM = { type: "string", enum: CUISINES } as JsonSchema;
 const UNIT_ENUM = { type: "string", enum: UNITS } as JsonSchema;
@@ -432,24 +437,22 @@ export const TEXT_SCHEMA: JsonSchema = {
         type: "object",
         properties: {
           name: { type: "string" },
-          matched_food_id: { type: ["string", "null"] },
-          is_dish: { type: "boolean" },
+          matched_food_id: { type: ["string", "null"], description: "candidate id of the same food, or null" },
           quantity: { type: "number" },
           unit: UNIT_ENUM,
           grams: { type: "number", description: "total grams eaten" },
           confidence: { type: "number" },
-          per100: PER100,
-          ingredients: { type: "array", items: INGREDIENT, description: "at most 6 main raw ingredients incl. cooking fat; skip salt and spices under 5 g; empty when matched" },
+          ingredients: { type: "array", items: INGREDIENT, description: "only when matched_food_id is null: the dish built from candidate ingredients; empty if it can't be built" },
         },
-        required: ["name", "matched_food_id", "is_dish", "quantity", "unit", "grams", "confidence", "per100", "ingredients"],
+        required: ["name", "matched_food_id", "quantity", "unit", "grams", "confidence", "ingredients"],
       },
     },
   },
   required: ["cuisine", "confidence", "question", "dishes"],
 };
 
-type AiIngredient = { name: string; matched_food_id: string | null; grams: number; notes: string | null; per100: Per100 };
-type AiDish = { name: string; matched_food_id: string | null; is_dish: boolean; quantity: number; unit: Unit; grams: number; confidence: number; per100: Per100; ingredients: AiIngredient[] };
+type AiIngredient = { matched_food_id: string | null; grams: number };
+type AiDish = { name: string; matched_food_id: string | null; quantity: number; unit: Unit; grams: number; confidence: number; ingredients: AiIngredient[] };
 
 const GUIDE = `Portion guide: 1 roti ~40 g, 1 katori ~150 g, 1 ladle ~120 g, 1 idli ~40 g, 1 dosa ~100 g, 1 vada ~60 g, 1 cup cooked rice ~160 g, 1 plate ~300-350 g, 1 tbsp ~15 g.
 Dish names are the food only, singular, without counts or units ("Roti", not "2 rotis").
@@ -473,111 +476,139 @@ export function cleanName(name: string): string {
   return out.charAt(0).toUpperCase() + out.slice(1);
 }
 
-// The text model sometimes leaves per100 at zero for foods it doesn't break down: one compact call fills them.
-const ZERO_OK = /\b(water|black coffee|black tea|diet|zero|sugar[- ]free soda|soda water)\b/i;
-const FILL_SCHEMA: JsonSchema = {
-  type: "object",
-  properties: { values: { type: "array", items: { type: "object", properties: { name: { type: "string" }, per100: PER100 }, required: ["name", "per100"] } } },
-  required: ["values"],
-};
-async function fillMissing(ctx: Ctx, dishes: AiDish[], candidates: Candidate[]): Promise<AiDish[]> {
-  const ids = new Set(candidates.map((c) => c.food_id));
-  const missing = dishes.filter((d) => !(d.matched_food_id && ids.has(d.matched_food_id)) && !(d.ingredients ?? []).length && n(d.per100.kcal) <= 0 && !ZERO_OK.test(d.name));
-  if (!missing.length) return dishes;
-  const out = await generateJSON<{ values: Array<{ name: string; per100: unknown }> }>(
-    `Give typical per-100 g nutrition as served, [kcal, protein_g, carbs_g, fat_g, fibre_g], for: ${missing.map((d) => d.name).join("; ")}. Same order. Never all zeros.`,
-    FILL_SCHEMA,
-    undefined,
-    ctx.guard,
-    "text",
-  );
-  return dishes.map((d) => {
-    const i = missing.indexOf(d);
-    const v = i >= 0 ? out.values?.[i] : undefined;
-    return v ? { ...d, per100: checkPer100(toPer100(v.per100), true) } : d;
-  });
-}
-
-// Turns AI dishes into draft items using candidates and the database; creates foods the DB lacks.
-async function resolveDishes(ctx: Ctx, dishes: AiDish[], candidates: Candidate[], cuisine: string | null, created: string[]): Promise<DraftItem[]> {
+// No-hallucination resolver. The model may only pick candidate ids, give grams, or build a dish from candidate
+// ingredients. Every nutrient number comes from database rows x grams. Anything else is "unknown".
+async function resolveDishes(ctx: Ctx, dishes: AiDish[], candidates: Candidate[], cuisine: string | null, created: string[]): Promise<{ items: DraftItem[]; unknown: string[] }> {
   const byId = new Map(candidates.map((c) => [c.food_id, c]));
-  const usable = (id: string | null) => (id && byId.has(id) && byId.get(id)!.score >= THRESHOLDS.accept && byId.get(id)!.kcal !== null ? byId.get(id)! : null);
+  const usable = (id: string | null | undefined) => (id && byId.has(id) && byId.get(id)!.kcal !== null ? byId.get(id)! : null);
   const matchedDishIds = dishes.map((d) => usable(d.matched_food_id)).filter((c): c is Candidate => Boolean(c?.is_dish)).map((c) => c.food_id);
   const recipes = await loadDishIngredients(ctx, matchedDishIds);
   const items: DraftItem[] = [];
+  const unknown: string[] = [];
 
   for (const [index, dish] of dishes.entries()) {
     const key = `d${index}`;
-    const quantity = dish.quantity > 0 ? dish.quantity : 1;
+    const quantity = n(dish.quantity) > 0 ? n(dish.quantity) : 1;
     const match = usable(dish.matched_food_id);
-    if (match) {
-      items.push({ ...itemFromCandidate(match, quantity, dish.unit, dish.grams, recipes.get(match.food_id), key), confidence: Math.min(dish.confidence, match.score) });
+    if (match && match.score >= THRESHOLDS.accept) {
+      items.push({ ...itemFromCandidate(match, quantity, dish.unit, n(dish.grams) || null, recipes.get(match.food_id), key), confidence: Math.min(n(dish.confidence) || 0.8, match.score) });
       continue;
     }
     const ingredients: DraftIngredient[] = [];
     for (const ing of dish.ingredients ?? []) {
-      if (!ing.name || !(ing.grams > 0)) continue;
-      let cand = usable(ing.matched_food_id);
-      if (!cand) {
-        const found = (await retrieve(ctx, ing.name, null, null, 3))[0];
-        cand = found && found.score >= THRESHOLDS.accept && found.kcal !== null && !found.is_dish ? found : null;
-      }
-      if (cand) {
-        ingredients.push({ food_id: cand.food_id, name: cand.name, grams: round1(ing.grams), per100: per100Of(cand), source: sourceOf(cand), notes: ing.notes });
-      } else {
-        const id = await getOrCreateGlobalFood(ctx, { name: ing.name, per100: ing.per100, cuisine: null, isDish: false, source: "ai" }, created);
-        ingredients.push({ food_id: id, name: ing.name, grams: round1(ing.grams), per100: ing.per100, source: "ai", notes: ing.notes });
-      }
+      const c = usable(ing.matched_food_id);
+      if (!c || !(n(ing.grams) > 0)) continue;
+      ingredients.push({ food_id: c.food_id, name: c.name, grams: round1(n(ing.grams)), per100: per100Of(c), source: sourceOf(c), notes: null });
     }
-    // The dish weight is what was eaten (cooked). Raw ingredients rarely add up to it: absorbed water fills
-    // the gap at 0 kcal, and a recipe heavier than the dish is scaled down to it.
+    if (ingredients.length < 2) {
+      unknown.push(cleanName(dish.name));
+      continue;
+    }
+    // The dish weight is what was eaten. Dry staples absorb water (0 kcal); recipes in cooked weights scale to the portion.
     const servedGrams = n(dish.grams) > 0 ? n(dish.grams) : ingredients.reduce((sum, ing) => sum + ing.grams, 0);
     const rawTotal = ingredients.reduce((sum, ing) => sum + ing.grams, 0);
-    if (ingredients.length > 1 && servedGrams > 0 && rawTotal > servedGrams * 1.25) {
+    if (servedGrams > 0 && rawTotal > servedGrams * 1.25) {
       const k = servedGrams / rawTotal;
       for (const ing of ingredients) ing.grams = round1(ing.grams * k);
-    } else if (ingredients.length > 1 && servedGrams > 0 && rawTotal < servedGrams * 0.9 && !ingredients.some((ing) => DRY.test(ing.name))) {
-      // Recipe already in cooked/as-served weights: scale it up to the portion instead of adding water.
+    } else if (servedGrams > 0 && rawTotal < servedGrams * 0.9 && !ingredients.some((ing) => DRY.test(ing.name))) {
       const k = servedGrams / rawTotal;
       for (const ing of ingredients) ing.grams = round1(ing.grams * k);
-    } else if (ingredients.length > 1 && servedGrams > 0 && rawTotal < servedGrams * 0.9) {
-      const water = await getOrCreateGlobalFood(ctx, { name: "Water", per100: { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0, fibre_g: 0 }, cuisine: null, isDish: false, source: "ai" }, created);
-      ingredients.push({ food_id: water, name: "Water (absorbed in cooking)", grams: round1(servedGrams - rawTotal), per100: { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0, fibre_g: 0 }, source: "ai", notes: null });
+    } else if (servedGrams > 0 && rawTotal < servedGrams * 0.9) {
+      const water = await getOrCreateGlobalFood(ctx, { name: "Water", per100: { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0, fibre_g: 0 }, cuisine: null, isDish: false, source: "verified" }, created);
+      ingredients.push({ food_id: water, name: "Water (absorbed in cooking)", grams: round1(servedGrams - rawTotal), per100: { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0, fibre_g: 0 }, source: "verified", notes: null });
     }
-    const base: DraftItem = {
+    const total = ingredients.reduce((sum, ing) => sum + ing.grams, 0);
+    const sum = macrosFor({ grams: total, per100: { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0, fibre_g: 0 }, ingredients });
+    const item: DraftItem = {
       key,
       food_id: null,
       name: cleanName(dish.name),
-      is_dish: ingredients.length > 1 || dish.is_dish,
+      is_dish: true,
       cuisine: normalizeCuisine(cuisine),
       quantity,
       unit: dish.unit,
-      grams: round1(dish.grams),
-      per100: dish.per100,
+      grams: round1(total),
+      per100: { kcal: round1((sum.kcal / total) * 100), protein_g: round1((sum.protein_g / total) * 100), carbs_g: round1((sum.carbs_g / total) * 100), fat_g: round1((sum.fat_g / total) * 100), fibre_g: round1((sum.fibre_g / total) * 100) },
       source: "ai",
       own: false,
-      confidence: Math.max(0, Math.min(1, dish.confidence)),
+      confidence: Math.max(0, Math.min(1, n(dish.confidence) || 0.6)),
       match_score: null,
       ingredients,
       servings: [],
+      tier: "ai_estimate",
     };
-    if (ingredients.length > 1) {
-      const total = ingredients.reduce((sum, ing) => sum + ing.grams, 0);
-      const sum = macrosFor({ grams: total, per100: base.per100, ingredients });
-      base.per100 = total > 0 ? { kcal: round1((sum.kcal / total) * 100), protein_g: round1((sum.protein_g / total) * 100), carbs_g: round1((sum.carbs_g / total) * 100), fat_g: round1((sum.fat_g / total) * 100), fibre_g: round1((sum.fibre_g / total) * 100) } : base.per100;
-      base.grams = round1(total);
-      base.food_id = await saveDish(ctx, base, ingredients, created);
-    } else if (ingredients.length === 1) {
-      base.food_id = ingredients[0].food_id;
-      base.per100 = ingredients[0].per100;
-      base.source = ingredients[0].source;
-      base.ingredients = [];
-    } else {
-      base.food_id = await getOrCreateGlobalFood(ctx, { name: base.name, per100: dish.per100, cuisine, isDish: false, source: "ai" }, created);
-    }
-    items.push(base);
+    item.food_id = await saveDish(ctx, item, ingredients, created);
+    items.push(item);
   }
-  return items;
+  return { items, unknown };
+}
+
+// ---------- the gate: before any AI call, every word must be a known food word or a harmless modifier ----------
+
+const MODIFIERS = new Set(("a an and the with of some small large medium big half full plain homemade home made fried deep grilled boiled steamed roasted baked " +
+  "spicy sweet salted fresh hot cold warm cup cups glass glasses bowl bowls plate plates slice slices piece pieces tsp tbsp teaspoon tablespoon ml gm gms kg gram grams " +
+  "serving servings extra less light heavy style my usual today for breakfast lunch dinner snack snacks ate had eaten just side mixed veg nonveg non can cans bottle " +
+  "scoop scoops katori katoris roti rotis ladle ladles one two three four five six seven eight nine ten few couple handful little lot also then plus without no " +
+  "medium-sized topped stuffed filled spread on in from at to my our some about approx around").split(/\s+/));
+
+let vocabCache: { at: number; words: Set<string> } | null = null;
+async function vocabulary(ctx: Ctx): Promise<Set<string>> {
+  if (!vocabCache || Date.now() - vocabCache.at > 10 * 60_000) {
+    const { data } = await ctx.admin.rpc("food_vocabulary");
+    vocabCache = { at: Date.now(), words: new Set(((data ?? []) as Array<{ word: string }>).map((r) => r.word)) };
+  }
+  if (!ctx.userId) return vocabCache.words;
+  const { data } = await ctx.user.from("foods").select("name, aliases").eq("owner_id", ctx.userId).limit(500);
+  const words = new Set(vocabCache.words);
+  for (const f of (data ?? []) as Array<{ name: string; aliases: string[] | null }>) for (const w of `${f.name} ${(f.aliases ?? []).join(" ")}`.toLowerCase().split(/[^a-z]+/)) if (w.length >= 3) words.add(w);
+  return words;
+}
+
+function lev(a: string, b: string, max: number): number {
+  if (Math.abs(a.length - b.length) > max) return max + 1;
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i += 1) {
+    const cur = [i];
+    let best = i;
+    for (let j = 1; j <= b.length; j += 1) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      best = Math.min(best, cur[j]);
+    }
+    if (best > max) return max + 1;
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
+export function knownWord(word: string, vocab: Set<string>): boolean {
+  if (vocab.has(word) || vocab.has(word.replace(/(es|s)$/, "")) || vocab.has(`${word}s`)) return true;
+  if (word.length < 4) return false;
+  const max = word.length >= 7 ? 2 : 1;
+  for (const v of vocab) if (Math.abs(v.length - word.length) <= max && lev(word, v, max) <= max) return true;
+  return false;
+}
+
+export type GateResult = { status: "ok" | "no_match" | "clarify"; segment: string; known: string[]; unknown: string[] };
+
+export function gateSegment(segment: string, vocab: Set<string>): GateResult {
+  const words = segment.toLowerCase().split(/[^a-z]+/).filter((w) => w.length >= 3 && !MODIFIERS.has(w));
+  const known = words.filter((w) => knownWord(w, vocab));
+  const unknown = words.filter((w) => !known.includes(w));
+  if (!words.length || !unknown.length) return { status: "ok", segment, known, unknown };
+  return { status: known.length ? "clarify" : "no_match", segment, known, unknown };
+}
+
+const NO_MATCH_MESSAGE = (names: string[]) =>
+  `I don't know ${names.length === 1 ? `“${names[0]}”` : "these"} yet. Add it manually or describe the ingredients, and I'll remember it.`;
+
+// Base ingredients the model may use to build an unknown dish (global foods only, cached).
+const BASE_INGREDIENTS = ["oil", "ghee", "butter", "onion", "tomato", "rice", "wheat flour", "potato", "paneer", "chicken", "egg", "milk", "sugar", "curd", "coconut", "peanut", "lentil", "dal", "bread", "cheese", "cream", "spinach", "peas", "carrot", "besan", "semolina"];
+let baseCache: { at: number; list: Candidate[] } | null = null;
+async function baseCandidates(ctx: Ctx): Promise<Candidate[]> {
+  if (baseCache && Date.now() - baseCache.at < 10 * 60_000) return baseCache.list;
+  const lists = await Promise.all(BASE_INGREDIENTS.map((q) => retrieve({ ...ctx, userId: null } as Ctx, q, null, null, 2).catch(() => [])));
+  baseCache = { at: Date.now(), list: lists.flat().filter((c) => !c.is_dish && c.score >= 0.5 && c.kcal !== null) };
+  return baseCache.list;
 }
 
 function summarize(items: DraftItem[], fallback: number): number {
@@ -621,6 +652,29 @@ async function saveAnalysis(
 
 // ---------- analyze_text ----------
 
+// Same gate and retrieval as logging, without any AI call: used by the search eval and for instant previews.
+export async function previewMatch(ctx: Ctx, text: string): Promise<{ status: "OK" | "NO_MATCH" | "CLARIFY"; options: string[]; candidates: Array<{ food_id: string; external_id: string | null; name: string; tier: string | null; score: number }> }> {
+  const input = text.trim().slice(0, 200);
+  const segments = splitSegments(input);
+  const vocab = await vocabulary(ctx);
+  const gates = (segments.length ? segments : [input]).map((segment) => gateSegment(segment, vocab));
+  const clarify = gates.find((g) => g.status === "clarify");
+  if (clarify) {
+    const options = (await retrieve(ctx, clarify.known.join(" "), null, null, 6)).map((c) => c.name).slice(0, 3);
+    return { status: "CLARIFY", options: [...options, "Something else"], candidates: [] };
+  }
+  const ok = gates.filter((g) => g.status === "ok");
+  if (!ok.length) return { status: "NO_MATCH", options: [], candidates: [] };
+  const name = parseSegment(ok[0].segment).name;
+  const list = await retrieve(ctx, name, await embedOnce(ctx, name), null, 5);
+  const candidates = list.map((c) => ({ food_id: c.food_id, external_id: c.external_id ?? null, name: c.name, tier: c.tier ?? null, score: Math.round(c.score * 1000) / 1000 }));
+  return { status: list[0] && list[0].score >= THRESHOLDS.accept ? "OK" : "NO_MATCH", options: [], candidates };
+}
+
+function noMatchDraft(base: Pick<Draft, "analysis_id" | "input_type" | "input_text" | "image_path" | "meal_type" | "date">, unknown: string[]): Draft {
+  return { ...base, cuisine: null, confidence: 0, question: null, items: [], notes: [], cache_hit: false, ai_calls: 0, candidates_count: 0, status: "no_match", unknown, message: NO_MATCH_MESSAGE(unknown) };
+}
+
 export async function analyzeText(ctx: Ctx, text: string, meta: { meal_type?: MealType | null; date?: string | null } = {}): Promise<Draft> {
   const started = performance.now();
   const input = text.trim().slice(0, 500);
@@ -641,8 +695,20 @@ export async function analyzeText(ctx: Ctx, text: string, meta: { meal_type?: Me
     }
   }
 
-  // 2. Retrieval per segment; confident DB matches for every segment need no AI.
-  const parsed = segments.map(parseSegment);
+  // 2. Gate: words that aren't food words never reach the model.
+  const vocab = await vocabulary(ctx);
+  const gates = segments.map((segment) => gateSegment(segment, vocab));
+  const clarify = gates.find((g) => g.status === "clarify");
+  if (clarify) {
+    const options = (await retrieve(ctx, clarify.known.join(" "), null, null, 8)).filter((c) => c.kcal !== null).map((c) => c.name).filter((name, i, list) => list.indexOf(name) === i).slice(0, 3);
+    return { ...base, cuisine: null, confidence: 0, question: `Which food did you mean by “${clarify.segment.trim()}”?`, items: [], notes: [], cache_hit: false, ai_calls: 0, candidates_count: options.length, status: "clarify", options: [...options, "Something else"], unknown: clarify.unknown, message: null };
+  }
+  const gateUnknown = gates.filter((g) => g.status === "no_match").map((g) => cleanName(parseSegment(g.segment).name));
+  const okSegments = segments.filter((_, i) => gates[i].status === "ok");
+  if (!okSegments.length) return noMatchDraft(base, gateUnknown);
+
+  // 3. Retrieval per segment; confident DB matches for every segment need no AI.
+  const parsed = okSegments.map(parseSegment);
   const segmentEmbeddings: Array<number[] | null> = [];
   for (const p of parsed) segmentEmbeddings.push(await embedOnce(ctx, p.name));
   const perSegment = await Promise.all(parsed.map((p, i) => retrieve(ctx, p.name, segmentEmbeddings[i], null, 10)));
@@ -653,36 +719,38 @@ export async function analyzeText(ctx: Ctx, text: string, meta: { meal_type?: Me
     const recipes = await loadDishIngredients(ctx, direct.filter((c) => c.is_dish).map((c) => c.food_id));
     const checked = await sanityCheck(ctx, parsed.map((p, i) => itemFromCandidate(direct[i], p.quantity, p.unit, null, recipes.get(direct[i].food_id), `d${i}`)));
     const items = checked.items;
-    const draft: Draft = { ...base, cuisine: direct[0].cuisine, confidence: summarize(items, 0.9), question: null, items, notes: checked.notes, quick_question: checked.quick, cache_hit: false, ai_calls: 0, candidates_count: candidates.length };
+    const notes = gateUnknown.length ? [...checked.notes, NO_MATCH_MESSAGE(gateUnknown)] : checked.notes;
+    const draft: Draft = { ...base, cuisine: direct[0].cuisine, confidence: summarize(items, 0.9), question: null, items, notes, quick_question: checked.quick, unknown: gateUnknown, status: "ok", cache_hit: false, ai_calls: 0, candidates_count: candidates.length };
     return saveAnalysis(ctx, draft, { embedding: fullEmbedding, raw: { db_match: true }, latency: performance.now() - started });
   }
 
-  // 3. AI with candidates as context; it must pick candidate ids or null.
-  const prompt = `You are FitOS's nutrition analyst for home-style food, especially Indian (North and South) and Australian meals.
-The user ate: "${input}"
-Rough segments: ${JSON.stringify(segments)}
+  // 4. The model only picks candidate ids and grams, or builds a dish from candidate ingredients. No numbers of its own.
+  const pool = mergeCandidates([candidates, await baseCandidates(ctx)]).concat((await baseCandidates(ctx)).filter((b) => !candidates.some((c) => c.food_id === b.food_id))).slice(0, 45);
+  const prompt = `You are FitOS's food matcher for home-style food, especially Indian and Australian meals.
+The user ate: "${okSegments.join(", ")}"
 
-Candidate foods from our database. Use these ids only; never invent an id. Use null when nothing fits.
-${candidateLines(candidates)}
+Candidate foods from our database (id | name | cuisine | dish or ingredient | source | per 100 g). Use these ids only; never invent an id.
+${candidateLines(pool)}
 
-1. Detect the cuisine.
-2. List every dish or food eaten with quantity, unit and total grams. Understand roti, katori, ladle, plate, piece, and counts of idli, dosa, vada.
-3. If a candidate is the same dish, set matched_food_id to its id and leave ingredients empty.
-4. Otherwise break the dish into a typical home-style recipe of raw ingredients with grams, preferring candidate raw ingredients (set their matched_food_id). Give per-100 g macros for each ingredient and for the dish as eaten.
-5. Give confidence 0-1 per dish and overall. Only if overall confidence is below 0.6, ask ONE short clarifying question (for example "Ghee or oil?"); otherwise question is null.
+1. List every food eaten with quantity, unit and total grams. Understand roti, katori, ladle, plate, piece, and counts of idli, dosa, vada.
+2. If a candidate is the same food, set matched_food_id to its id and leave ingredients empty.
+3. Otherwise, if the dish can be made from candidate ingredients, set matched_food_id null and list those ingredient ids with grams for the amount eaten (raw grams for dry staples). If it can't be built from the candidates, leave ingredients empty.
+4. Never output nutrient numbers. Confidence 0-1 per food and overall; only below 0.6, ask ONE short question, otherwise null.
 ${GUIDE}`;
   const ai = await generateJSON<{ cuisine: string; confidence: number; question: string | null; dishes: AiDish[] }>(prompt, TEXT_SCHEMA, undefined, ctx.guard, "text");
   const created: string[] = [];
   const cuisine = normalizeCuisine(ai.cuisine);
-  const counted = cleanDishes(normalizeDishes(ai.dishes ?? [])).map((dish) => {
+  const counted = (ai.dishes ?? []).map((dish) => {
     const seg = parsed.find((p) => p.quantity > 1 && sameFood(p.name, dish.name));
     if (!seg || n(dish.quantity) === seg.quantity || n(dish.quantity) <= 0) return dish;
     const k = seg.quantity / n(dish.quantity);
-    return { ...dish, quantity: seg.quantity, grams: round1(n(dish.grams) * k), ingredients: (dish.ingredients ?? []).map((ing) => ({ ...ing, grams: round1(ing.grams * k) })) };
+    return { ...dish, quantity: seg.quantity, grams: round1(n(dish.grams) * k), ingredients: (dish.ingredients ?? []).map((ing) => ({ ...ing, grams: round1(n(ing.grams) * k) })) };
   });
-  const resolved = await resolveDishes(ctx, await fillMissing(ctx, counted, candidates), candidates, cuisine, created);
+  const resolved = await resolveDishes(ctx, counted, pool, cuisine, created);
   await embedFoods(ctx, created);
-  const checked = await sanityCheck(ctx, resolved);
+  const unknown = [...gateUnknown, ...resolved.unknown];
+  const checked = await sanityCheck(ctx, resolved.items);
+  if (!checked.items.length) return noMatchDraft(base, unknown.length ? unknown : [input]);
   const confidence = Math.max(0, Math.min(1, n(ai.confidence)));
   const draft: Draft = {
     ...base,
@@ -690,8 +758,10 @@ ${GUIDE}`;
     confidence: Math.round(confidence * 100) / 100,
     question: confidence < 0.6 ? ai.question : null,
     items: checked.items,
-    notes: checked.notes,
+    notes: unknown.length ? [...checked.notes, NO_MATCH_MESSAGE(unknown)] : checked.notes,
     quick_question: checked.quick,
+    status: "ok",
+    unknown,
     cache_hit: false,
     ai_calls: ctx.aiCalls,
     candidates_count: candidates.length,
@@ -726,15 +796,6 @@ export function checkPer100(per100: Per100, recomputeKcal: boolean): Per100 {
   const expected = 4 * out.protein_g + 4 * out.carbs_g + 9 * out.fat_g + 7 * n((per100 as Per100 & { alcohol_g?: number }).alcohol_g);
   if (recomputeKcal && expected > 5 && Math.abs(out.kcal - expected) / expected > 0.1) out.kcal = Math.min(round1(expected), CAP.kcal);
   return out;
-}
-
-// AI numbers are checked before anything is stored as a food.
-function cleanDishes(dishes: AiDish[]): AiDish[] {
-  return dishes.map((dish) => ({
-    ...dish,
-    per100: checkPer100(dish.per100, true),
-    ingredients: (dish.ingredients ?? []).map((ing) => ({ ...ing, per100: checkPer100(ing.per100, true) })),
-  }));
 }
 
 type PortionRange = { unit: string; name_pattern: string | null; min_g: number; max_g: number; typical_g: number | null; note: string | null };
@@ -1035,6 +1096,8 @@ export async function analyzePhoto(ctx: Ctx, imagePath: string, image: ImageInpu
 
   // 3. Every item has a confident database match: no text call needed.
   let items: DraftItem[];
+  let photoUnknown: string[] = [];
+  const photoPool = mergeCandidates([candidates]).concat((await baseCandidates(ctx)).filter((b) => !candidates.some((c) => c.food_id === b.food_id))).slice(0, 45);
   let question: string | null = null;
   let textConfidence = 1;
   let raw: unknown = { detection, secondLook };
@@ -1044,16 +1107,16 @@ export async function analyzePhoto(ctx: Ctx, imagePath: string, image: ImageInpu
     items = detection.items.map((d, i) => ({ ...itemFromCandidate(strong[i]!, d.quantity, d.unit, d.grams, recipes.get(strong[i]!.food_id), `p${i}`), confidence: Math.min(d.confidence, strong[i]!.score) }));
   } else {
     const ai = await generateJSON<{ cuisine: string; confidence: number; question: string | null; dishes: AiDish[] }>(
-      `You are FitOS's nutrition analyst. A vision model saw these items in a ${cuisine ?? "home"} meal photo:
+      `You are FitOS's food matcher. A vision model saw these items in a ${cuisine ?? "home"} meal photo:
 ${detection.items.map((d, i) => `${i + 1}. ${d.name} (${d.cuisine}), ${d.quantity} ${d.unit}, about ${d.grams} g; portion cues: ${d.portion_cues || "-"}; cooking fat: ${d.cooking_fat}${d.fat_cues ? ` (${d.fat_cues})` : ""}; seen with confidence ${d.confidence}`).join("\n")}
 
-Candidate foods from our database. Use these ids only; never invent an id. Use null when nothing fits.
-${candidateLines(candidates)}
+Candidate foods from our database (id | name | cuisine | dish or ingredient | source | per 100 g). Use these ids only; never invent an id.
+${candidateLines(photoPool)}
 
 Return one dish per item above, in the same order and with the same quantity and unit.
-1. If a candidate is the same dish, set matched_food_id and leave ingredients empty.
-2. Otherwise give a typical home-style recipe of raw ingredients for the amount seen, preferring candidate raw ingredients (set their matched_food_id). Put the visible cooking fat inside that dish's ingredients; never as a separate dish.
-3. Correct grams if the cues clearly disagree with the estimate. per100 is for the food as served (cooked).
+1. If a candidate is the same food, set matched_food_id and leave ingredients empty.
+2. Otherwise, if it can be made from candidate ingredients, set matched_food_id null and list ingredient ids with grams for the amount seen, including the visible cooking fat. If it can't be built from the candidates, leave ingredients empty.
+3. Correct grams if the cues clearly disagree with the estimate. Never output nutrient numbers.
 4. Confidence 0-1 per dish and overall. Only if overall confidence is below 0.6, ask ONE short clarifying question; otherwise null.
 ${GUIDE}`,
       TEXT_SCHEMA,
@@ -1064,8 +1127,10 @@ ${GUIDE}`,
     textConfidence = Math.max(0, Math.min(1, n(ai.confidence)));
     question = ai.question;
     raw = { detection, secondLook, resolve: ai };
-    const dishes = cleanDishes(normalizeDishes(ai.dishes ?? [])).map((dish, i) => ({ ...dish, confidence: Math.min(n(dish.confidence) || 0.5, detection.items[i]?.confidence ?? 0.5) }));
-    items = (await resolveDishes(ctx, await fillMissing(ctx, dishes, candidates), candidates, cuisine, created)).map((item, i) => ({ ...item, key: `p${i}` }));
+    const dishes = (ai.dishes ?? []).map((dish, i) => ({ ...dish, confidence: Math.min(n(dish.confidence) || 0.5, detection.items[i]?.confidence ?? 0.5) }));
+    const resolved = await resolveDishes(ctx, dishes, photoPool, cuisine, created);
+    photoUnknown = resolved.unknown;
+    items = resolved.items.map((item, i) => ({ ...item, key: `p${i}` }));
   }
   await embedFoods(ctx, created);
   const checked = await sanityCheck(ctx, items);
@@ -1081,7 +1146,10 @@ ${GUIDE}`,
     question: confidence < 0.6 ? question : null,
     items: checked.items,
     quick_question: checked.quick,
-    notes: secondLook ? ["Unsure photo: looked twice and kept what both looks agreed on.", ...checked.notes] : checked.notes,
+    status: checked.items.length ? "ok" : "no_match",
+    unknown: photoUnknown,
+    message: checked.items.length ? null : NO_MATCH_MESSAGE(photoUnknown.length ? photoUnknown : ["this dish"]),
+    notes: [...(secondLook ? ["Unsure photo: looked twice and kept what both looks agreed on."] : []), ...checked.notes, ...(photoUnknown.length && checked.items.length ? [NO_MATCH_MESSAGE(photoUnknown)] : [])],
     meal_type: meta.meal_type ?? null,
     date: meta.date ?? null,
     cache_hit: false,

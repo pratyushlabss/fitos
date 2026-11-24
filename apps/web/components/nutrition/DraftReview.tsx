@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/Button";
 import { Segmented } from "@/components/ui/Field";
 import { confirmDraft, discardDraft, searchFoods } from "@/lib/data/nutrition";
 import { MEAL_LABELS, MEAL_TYPES } from "@/lib/logic/dashboard";
-import { defaultPortion, draftItemFromHit, macrosFor, round1, SOURCE_BADGE, sumMacros, UNIT_LABEL, withAmount } from "@/lib/logic/nutrition";
+import { badgeLabel, defaultPortion, draftItemFromHit, macrosFor, round1, sumMacros, UNIT_LABEL, withAmount } from "@/lib/logic/nutrition";
 
 const numberInput =
   "w-full rounded-lg border border-white/10 bg-slate-950/70 px-2 py-1.5 text-center text-base text-white outline-none focus:border-emerald-300/40";
@@ -24,9 +24,17 @@ function ConfidenceDot({ value }: { value: number }) {
   );
 }
 
-export function SourceBadge({ source }: { source: DraftItem["source"] }) {
-  const badge = SOURCE_BADGE[source] ?? SOURCE_BADGE.ai;
-  return <span className={`rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] ${badge.className}`}>{badge.label}</span>;
+export function SourceBadge({ source, tier, own, source_ref, energy_check }: { source: DraftItem["source"]; tier?: DraftItem["tier"]; own?: boolean; source_ref?: string | null; energy_check?: DraftItem["energy_check"] }) {
+  const label = badgeLabel({ source, tier, own, source_ref });
+  const dashed = label === "Unverified" || label === "AI estimate";
+  return (
+    <>
+      <span className={`rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] ${dashed ? "border-dashed border-fg/50 text-fg/70" : "border-fg/60 text-fg"}`}>
+        {label === "AI estimate" ? "AI estimate from ingredients" : label}
+      </span>
+      {energy_check === "flag" ? <span className="text-[10px] text-muted">check values</span> : null}
+    </>
+  );
 }
 
 function unitsFor(item: DraftItem): ServingUnit[] {
@@ -43,6 +51,9 @@ export function DraftReview({
   onDone,
   onCancel,
   onReanalyze,
+  onClarify,
+  onManual,
+  onDescribe,
 }: {
   draft: FoodDraft;
   mealType: MealType;
@@ -51,6 +62,9 @@ export function DraftReview({
   onDone: (message: string) => void;
   onCancel: () => void;
   onReanalyze?: (answer: string) => void;
+  onClarify?: (option: string) => void;
+  onManual?: () => void;
+  onDescribe?: () => void;
 }) {
   const [items, setItems] = useState<DraftItem[]>(draft.items);
   const [open, setOpen] = useState<string | null>(draft.items.length === 1 ? draft.items[0].key : null);
@@ -70,6 +84,41 @@ export function DraftReview({
 
   function patch(key: string, next: DraftItem) {
     setItems(items.map((item) => (item.key === key ? next : item)));
+  }
+
+  // Clarify: a real food word mixed with unknown words. Never mapped silently.
+  if (draft.status === "clarify") {
+    return (
+      <div className="space-y-3 pb-2">
+        <p className="text-sm font-semibold text-fg">{draft.question}</p>
+        <div className="flex flex-wrap gap-2">
+          {(draft.options ?? []).map((option) => (
+            <button
+              key={option}
+              type="button"
+              className="press min-h-[44px] rounded-full border border-line px-4 text-sm text-fg"
+              onClick={() => (option === "Something else" ? (onManual ?? onCancel)() : onClarify?.(option))}
+            >
+              {option}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+  // No match: say so plainly; offer manual entry or describing the ingredients.
+  if (draft.status === "no_match" || !draft.items.length) {
+    return (
+      <div className="space-y-3 pb-2">
+        <p className="text-sm font-semibold text-fg">{draft.message ?? "I don't know this one yet."}</p>
+        <div className="grid grid-cols-2 gap-2">
+          <Button variant="outline" onClick={() => (onDescribe ?? onCancel)()}>
+            Describe ingredients
+          </Button>
+          <Button onClick={() => (onManual ?? onCancel)()}>Add manually</Button>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -158,7 +207,7 @@ export function DraftReview({
                       <ItemConfidence value={item.confidence} />
                     </span>
                     <span className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400">
-                      <SourceBadge source={item.source} />
+                      <SourceBadge source={item.source} tier={item.tier} own={item.own} source_ref={item.source_ref} energy_check={item.energy_check} />
                       {Math.round(m.kcal)} kcal · {m.protein_g}P {m.carbs_g}C {m.fat_g}F
                     </span>
                   </span>

@@ -155,7 +155,8 @@ export function CameraLogger({
     setPhase({ kind: "analysing", preview, label: "Finding every food on the plate…" });
     try {
       const { draft } = await analyzePhoto(file, mealType, day);
-      setPhase({ kind: "review", draft, source: "photo_ai" });
+      if (draft.status === "no_match" || !draft.items.length) setPhase({ kind: "error", message: draft.message ?? "I don't know this one yet. Type it instead or add it manually." });
+      else setPhase({ kind: "review", draft, source: "photo_ai" });
     } catch (error) {
       setPhase({ kind: "error", message: error instanceof Error ? error.message : "Could not read that photo." });
     }
