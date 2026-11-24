@@ -352,7 +352,7 @@ export async function coachReply(ctx: Ctx, message: string, onEvent?: (event: Co
   const uid = ctx.userId!;
   const text = message.trim().slice(0, 1000);
   const today = localDate(ctx.timezone);
-  const { data: history } = await ctx.user.from("coach_messages").select("role, content").eq("user_id", uid).in("role", ["user", "assistant"]).order("created_at", { ascending: false }).limit(10);
+  const { data: history } = await ctx.user.from("coach_messages").select("role, content").eq("user_id", uid).in("role", ["user", "assistant"]).order("created_at", { ascending: false }).limit(6);
   const past: ChatMessage[] = ((history ?? []) as Array<{ role: "user" | "assistant"; content: string }>).reverse().map((m) => ({ role: m.role, content: m.content }) as ChatMessage);
   const system = `${COACH_PROMPT}\n\n${TOOL_RULES}\n\nContext:\n${await contextBlock(ctx, text, today)}`;
 
@@ -381,7 +381,7 @@ export async function coachReply(ctx: Ctx, message: string, onEvent?: (event: Co
       if (output.draft) drafts.push(output.draft);
       if (output.card) cards.push(output.card);
       if (call.name === "confirm_log") logged += num((output.result as { saved?: number }).saved);
-      messages.push({ role: "tool", toolCallId: call.id, name: call.name, content: JSON.stringify(output.result).slice(0, 6000) });
+      messages.push({ role: "tool", toolCallId: call.id, name: call.name, content: JSON.stringify(output.result).slice(0, 2500) });
     }
   }
   if (!reply) reply = drafts.length ? "Here's the draft. Log this?" : "Sorry, I couldn't finish that. Try asking again.";

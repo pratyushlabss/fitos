@@ -394,3 +394,60 @@ Visual layer only. No data logic, Supabase calls, edge functions or routes chang
 - **Adaptive TDEE:** intake minus the weight slope × 7700, from ≥ 10 logged days and ≥ 4 weigh-ins in 21 days. Targets move at most ±150 kcal a week, with a `target_change` insight explaining why.
 - **Unit tests:** 26 of 26 pass. They cover yield conversion, the puri oil line, ghee moved out of dal, fibre ≤ carbs, Atwater, method lookup and the chip question.
 - The text eval rerun after the zero-kcal fix was invalid. Half its cases hit the per-user cap of 30 calls a day because both runs reused one account. Eval runs now use a fresh account each time.
+
+## Coach (Part C), UI hooks (Part E) and evals (Part D), 2026-11-24
+
+- **Coach:**
+  - `_shared/coach_prompt.ts` holds the system prompt verbatim plus tool rules. Context is compact: profile, targets, today against target, 7 days, 5 workouts, weight trend, streak, top memories, matching foods and favourites.
+  - 12 tools: `get_day_summary`, `get_history`, `get_workouts`, `get_weight_trend`, `get_targets`, `search_foods`, `draft_log`, `confirm_log`, `suggest_meals`, `plan_day`, `weekly_review`, `save_memory`.
+  - Logging is back to draft, then "yes", then confirm, as the new prompt requires.
+  - `suggest_meals` and `plan_day` are deterministic: the user's own foods first, then verified staples, with exact maths. Plans scale portions until within ±5% kcal and ±10 g protein.
+  - Streaming over SSE (`chat_stream`), with tool chips, a typing indicator, meal, plan and review cards, and "Log this".
+- **UI:**
+  - Day view: a confidence dot per item, an oil-level chip and collapsed micronutrients.
+  - Review: grams slider with min, typical and max markers, "How many?" chips and oil-level chips.
+  - Home: weekly review, nudge and target-change card. Settings: nudges toggle and memories list.
+- **Evals:** each run now uses a fresh account, because the per-user cap of 30 calls a day had invalidated earlier runs.
+
+### Macro eval (30 text cases with IFCT and USDA reference values; live)
+
+| Run | Item recall | kcal MAPE | Protein MAPE | Notes |
+|---|---|---|---|---|
+| Round 1 (engine A+B) | 95% | 31.6% | 36.5% | Fat counted twice on as-served items, AI recipe fat, dilute water fill, AI-made foods blocking the verified seed |
+| Round 2 (fixes) | 94% | 31.9% | 39.7% | Remaining error: dishes missing from the database, where the model invented per-100 g values (toast 280 g, khichdi 29 kcal/100 g) |
+
+**Targets not met** (kcal < 15%, protein < 20%). The cause is the empty food database: only 32 verified staples. The `fitos_food_db` change below removes invented values entirely, but those dishes then return "I don't know this one yet" until the food database is imported. Rerun `scripts/food_eval.ts` after the import.
+
+Matched-from-database cases are already accurate: rotis/dal/rice 0%, poha 0%, chicken curry and rotis 0%, rajma and rice 5%, grilled chicken, rice and broccoli 2%, protein shake 1%.
+
+## FitOS food database and no-hallucination rules (2026-11-24)
+
+- **The `fitos_food_db/` folder is not on this machine,** so the import, the attribution text and the search eval data are pending. Everything else is built and deployed.
+- **Migration 014:**
+  - Food columns: tier, source_ref, energy_check, notes, embed_text, external_id.
+  - Global names are unique per name and source, so IFCT and USDA can share a name.
+  - `match_foods`: name or alias score (trigram plus alias word_similarity) fused with vectors by RRF, plus tier bonuses: user +0.08, recipe +0.05, lab +0.04, community 0, ai_estimate −0.03.
+  - `food_vocabulary()`.
+  - Database tests: 106 PASS.
+- **Enforced in code:**
+  - A vocabulary gate runs before any AI call. A segment with no known food word becomes NO_MATCH, with "I don't know … yet" and manual or describe options.
+  - A real word mixed with unknown words becomes CLARIFY: one question, the closest 3 matches, and "Something else".
+  - The model's schema has no nutrient fields. It may only pick candidate ids, give grams, or build a dish from at least 2 candidate ingredients.
+  - Every number is database rows × grams. Built dishes are saved as `ai_estimate` with their ingredients.
+- **Verified live:** "moonberry biryani" → clarify with "Veg biryani" and "Something else". "zorblax qwimp" → no match. "2 idli and 1 katori sambar" → database-only Idli 120 g 168 kcal and Sambar 150 g 112 kcal.
+- **Other changes:**
+  - Oil levels are ×0, ×0.5, ×1 and ×1.8.
+  - Badges: IFCT, USDA, BLS, Recipe, Unverified, Mine, AI estimate, plus "check values".
+  - Manual add warns when kcal is more than 15% off the macros, and takes optional sugar and sodium.
+  - New Data sources screen. `scripts/import_ifct.ts` was removed and replaced by `scripts/import_food_db.ts`.
+
+### Coach eval (25 scripted conversations; live)
+
+| Run | Completed cases | Passed | Blocked |
+|---|---|---|---|
+| Round 1 | 7 | 7 of 7 (what's left, protein so far, draft-before-log, pregnant safety, …) | 18 rate-limited: per-minute tokens, then the 30-a-day per-user cap |
+| Round 2 (fresh user every 6 cases, one 60 s retry) | 3 | 3 of 3 | Groq **tokens per day** exhausted for `openai/gpt-oss-120b`: 198,708 of 200,000 used by today's evals |
+
+- **Every case that got an answer passed.** The ≥ 90% target can't be measured today: one full coach eval needs about 225,000 tokens, which is more than this model's daily free budget.
+- **Changes from this:** coach rounds now use low reasoning effort, a 1,200-token output cap, tool results trimmed to 2,500 characters and 6 history messages, so one turn fits the 8,000-tokens-a-minute limit.
+- **Production impact:** on Groq's free tier the text model's 200,000 tokens a day cover about 30–40 coach turns plus text analyses for all users combined. Options are Groq's Dev tier, or pointing `AI_TEXT_MODEL` at `openai/gpt-oss-20b`, which has its own budget.

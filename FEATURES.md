@@ -304,3 +304,18 @@ This supersedes the nutrition and AI rows above. Each status was verified on the
 | Coach: 12 tools, compact context, streaming with tool chips | Working | `_shared/coach.ts`, `_shared/coach_prompt.ts`, `app/coach/page.tsx` |
 | Meal options and day plans with exact macros and "Log this" | Working | `buildOptions`, `planDay` |
 | Weekly review card on Home and in Coach; one nudge a day; nudges toggle and memories list in Settings | Working | `coach_insights`, `CoachSettings` |
+
+## FitOS food database and no-hallucination logging (2026-11-24)
+
+| Feature | Status | Main files |
+|---|---|---|
+| Food DB mapped onto foods, food_nutrition, food_servings, dish_ingredients, embeddings | Ready; waiting for the `fitos_food_db/` folder | `scripts/import_food_db.ts`, migration 014 |
+| Search: name and alias trigram, fused with vectors by RRF; tier priority user > recipe > lab > community | Working | `match_foods` (014) |
+| Gate before any AI call: unknown words get "I don't know this one yet"; a real word plus unknown words gets one question with options | Working, verified live ("moonberry biryani" → clarify; "zorblax qwimp" → no match) | `gateSegment`, `previewMatch` |
+| The AI only picks database ids, grams, or dishes built from database ingredients; every number comes from rows × grams | Working | `resolveDishes`, `TEXT_SCHEMA` |
+| Dishes built by the AI are saved as tier `ai_estimate` with their ingredients and the "AI estimate from ingredients" badge | Working | `saveDish`, `SourceBadge` |
+| Badges: IFCT, USDA, BLS, Recipe, Unverified, Mine, AI estimate; "check values" on energy_check = flag | Working | `badgeLabel` |
+| Oil and ghee levels ×0, ×0.5, ×1, ×1.8 | Working | `OIL_FACTOR` |
+| Manual add with an Atwater check (warns above 15%), optional sugar and sodium, saved as the user's own tier | Working | `ManualTab`, `createMyFood` |
+| About and data sources screen | Working; the attribution fills in on import | `app/profile/page.tsx`, `lib/dataSources.json` |
+| Search eval: top-3 ≥ 90%, traps 100% NO_MATCH, partial words 100% CLARIFY | Ready; needs `eval_queries.csv` | `scripts/food_search_eval.ts` |

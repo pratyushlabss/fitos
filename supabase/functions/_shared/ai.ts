@@ -44,6 +44,8 @@ const MAX_IMAGES = 3;
 // Groq free tier: 8,000 tokens per minute per model. Reasoning tokens count as output, so text gets more room.
 const VISION_MAX_TOKENS = envIntRaw("AI_MAX_OUTPUT_TOKENS", 950);
 const TEXT_MAX_TOKENS = envIntRaw("AI_TEXT_MAX_OUTPUT_TOKENS", 2400);
+// Coach turns can take several rounds; keep each small so one turn fits the free tier's 8,000 tokens a minute.
+const COACH_MAX_TOKENS = Math.min(TEXT_MAX_TOKENS, 1200);
 
 function envIntRaw(name: string, fallback: number): number {
   const value = Number(Deno.env.get(name));
@@ -157,7 +159,7 @@ type GroqResponse = {
 // Qwen 3 on Groq: reasoning_effort "none" turns thinking off; reasoning_format "hidden" keeps it out of the reply.
 function reasoningParams(model: string, thinking: boolean): Record<string, unknown> {
   if (model.startsWith("qwen/")) return thinking ? { reasoning_format: "hidden" } : { reasoning_effort: "none" };
-  if (model.startsWith("openai/gpt-oss")) return { reasoning_effort: thinking ? "medium" : "low", include_reasoning: false };
+  if (model.startsWith("openai/gpt-oss")) return { reasoning_effort: "low", include_reasoning: false };
   return {};
 }
 
@@ -268,7 +270,7 @@ export async function chat(system: string, messages: ChatMessage[], tools: ToolD
       tools: tools.map((tool) => ({ type: "function", function: { name: tool.name, description: tool.description, parameters: tool.parameters } })),
       tool_choice: "auto",
       temperature: 0.5,
-      max_completion_tokens: TEXT_MAX_TOKENS,
+      max_completion_tokens: COACH_MAX_TOKENS,
       ...reasoningParams(model, true),
     }),
   );
@@ -305,7 +307,7 @@ export async function chatStream(system: string, messages: ChatMessage[], tools:
         tools: tools.map((tool) => ({ type: "function", function: { name: tool.name, description: tool.description, parameters: tool.parameters } })),
         tool_choice: "auto",
         temperature: 0.4,
-        max_completion_tokens: TEXT_MAX_TOKENS,
+        max_completion_tokens: COACH_MAX_TOKENS,
         stream: true,
         stream_options: { include_usage: true },
         ...reasoningParams(model, true),

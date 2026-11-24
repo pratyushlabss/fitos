@@ -116,6 +116,7 @@ npx supabase functions deploy embed-worker --no-verify-jwt
 | 010 | RAG: pgvector, `match_foods`, semantic cache, coach memory |
 | 011 | AI call guard: per-user and global daily caps |
 | 012 | `portion_ranges` for portion sanity checks |
+| 014 | Food DB mapping: `foods.tier`, `source_ref`, `energy_check`, `notes`, `embed_text`, `external_id`; tier-priority `match_foods`; `food_vocabulary()` for the no-hallucination gate |
 | 013 | Macro engine: yield, fat absorption, dish methods, densities; micronutrients; `compute_item`; `user_dish_prefs`; profile fields for BMR; `coach_insights`; jobs for adaptive targets, weekly review, nudges and dish promotion; 32 verified staple foods |
 
 Migration 013 schedules its four jobs only when `pg_cron` is already enabled. If you enable it later, re-run the `DO $$ … cron.schedule … $$` block at the end of 013.
@@ -149,16 +150,25 @@ select cron.schedule(
 
 3. Check it with `select * from cron.job_run_details order by start_time desc limit 5;`. To stop it, run `select cron.unschedule('fitos-embed-worker');`.
 
-### Seed IFCT ingredients (optional, recommended)
+### Import the FitOS food database (required)
 
-Indian dish breakdowns are most accurate when the raw ingredients come from the Indian Food Composition Tables (IFCT 2017). Save the composition table as `data/ifct2017.csv`, then run:
+Put the `fitos_food_db/` folder (README.md, schema.sql, foods.csv, food_servings.csv, dish_ingredients.csv, eval_queries.csv) in the repo root, then:
 
 ```bash
-SUPABASE_URL=https://lnspwuepxdlhgvcdwrte.supabase.co SUPABASE_SERVICE_ROLE_KEY=<service_role key> \
-  npx deno run -A scripts/import_ifct.ts
+export SUPABASE_URL=https://lnspwuepxdlhgvcdwrte.supabase.co
+export SUPABASE_SERVICE_ROLE_KEY=<service_role key>
+npx deno run -A scripts/import_food_db.ts
 ```
 
-It imports each row as a global, verified ingredient (`source = ifct`) and then calls `embed-worker` until every food has an embedding. Without the file it skips with a message. The column names it accepts are listed at the top of the script.
+- It upserts foods, nutrition, servings and dish ingredients in batches of 500 on `id`. Text ids are mapped to stable UUIDs and kept in `foods.external_id`.
+- It keeps `tier`, `verified`, `source`, `source_ref`, `energy_check` and `notes`, writes the README attribution to `apps/web/lib/dataSources.json`, and then calls `embed-worker` until every food has an embedding.
+- Rebuild and redeploy the web app afterwards so the Data sources screen shows the attribution.
+
+Check search quality:
+
+```bash
+SUPABASE_URL=… SUPABASE_ANON_KEY=… npx deno run -A scripts/food_search_eval.ts
+```
 
 ### Retrieval eval
 
