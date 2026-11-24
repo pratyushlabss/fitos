@@ -12,7 +12,7 @@ import type {
   Serving,
   ServingUnit,
 } from "@fitos/types";
-import { FunctionsHttpError } from "@supabase/supabase-js";
+import { FunctionsFetchError, FunctionsHttpError, FunctionsRelayError } from "@supabase/supabase-js";
 
 import { macrosFor, round1 } from "@/lib/logic/nutrition";
 
@@ -216,6 +216,7 @@ async function functionError(error: unknown): Promise<Error> {
       return new Error("Request failed");
     }
   }
+  if (error instanceof FunctionsFetchError || error instanceof FunctionsRelayError) return new Error("Can't reach FitOS AI right now. Check your connection, or log it manually.");
   return error instanceof Error ? error : new Error("Request failed");
 }
 

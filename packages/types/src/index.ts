@@ -284,6 +284,8 @@ export type FoodDraft = {
   cache_hit: boolean;
   ai_calls: number;
   candidates_count: number;
+  // Server sanity-check notes: adjusted portions, dropped low-confidence items, second look.
+  notes?: string[];
 };
 
 export type NutritionDay = {

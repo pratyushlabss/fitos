@@ -86,7 +86,7 @@ Deno.serve(async (req) => {
         });
       }
       case "status":
-        return json(req, { provider: aiInfo.provider, model: aiInfo.model, configured: aiInfo.configured });
+        return json(req, { provider: aiInfo.provider, vision_model: aiInfo.visionModel, text_model: aiInfo.textModel, configured: aiInfo.configured });
       default:
         return fail(req, 400, "unknown_action", "Unknown action.");
     }

@@ -306,3 +306,34 @@ Visual layer only. No data logic, Supabase calls, edge functions or routes chang
 - Groq models on the key: `qwen/qwen3.8-27b` (the only vision model), `openai/gpt-oss-120b`, `openai/gpt-oss-20b`. **There is no Llama chat model**, so the text role will use `openai/gpt-oss-120b`.
 - Local `functions serve` needs Docker, which is not installed, and the Management API logs endpoint changed. Deployed functions were probed directly instead.
 - Playwright walked the main flows against the live backend as a throwaway user. Every non-AI flow passed.
+
+## Food AI fix: Phase 2, two-model pipeline (2026-11-24)
+
+- **Models from secrets only:** `AI_VISION_MODEL` (photos) and `AI_TEXT_MODEL` (text logging, photo resolution, coach), with `AI_MODEL` as a legacy fallback. No model id is hardcoded.
+  - Live: vision `qwen/qwen3.8-27b`, text `openai/gpt-oss-120b`. The key has no Llama chat model.
+  - Each model has its own 1,000-requests-a-day and 8,000-tokens-a-minute budget, so the split doubles throughput.
+- **Photo:**
+  1. Vision detects items with cuisine, quantity and unit, grams, portion cues, cooking-fat cues, position and confidence.
+  2. Below 0.6 confidence, a second detection runs. Items seen both times win, and items seen once are kept at 60% confidence.
+  3. `match_foods` runs per item.
+  4. Unless every item has a strong database match, the text model resolves all items against the candidates. It matches, or gives a recipe with the fat inside the dish, plus one question below 0.6.
+  - Visible fat is no longer a separate line, so it isn't counted twice.
+- **Text:** cache, then direct database match, then the text model with candidates. The flow is unchanged otherwise.
+- **Sanity checks on every draft:**
+  - Per-100 g caps: kcal ≤ 900, protein ≤ 90, macro mass ≤ 100 g.
+  - kcal recomputed from 4P + 4C + 9F when it is off by more than 15%, for AI-sourced values.
+  - Portions clamped to `portion_ranges` (new table, migration 012, 45 rows) with confidence × 0.7.
+  - Items under 0.3 confidence dropped. `notes` explain every change and show on the review screen.
+- **Dish weight:** the cooked weight the model reports. Absorbed water fills the gap at 0 kcal, and a recipe heavier than the dish is scaled down to it. Names like "2 rotis" are saved as "Roti".
+- **CPU limit fixed:**
+  - Each text is embedded once per request, one at a time, with at most 12 embeddings.
+  - Ingredient lookups use trigram matching.
+  - New foods beyond the budget are left to `embed-worker`.
+- **Errors:** a 429, 5xx or timeout says "AI busy, try again or log manually". Reaching our daily caps says "AI paused for today". Neither retries in a loop.
+- **CORS:** localhost and private LAN addresses on any port are allowed, so a phone on the same Wi-Fi works. JWT auth is unchanged.
+- **Client:**
+  - Network failures read "Can't reach FitOS AI right now…".
+  - A failed coach message no longer leaves a duplicate bubble.
+- **Live data:** deleted 28 unreferenced AI foods created by test probes, including "Dal" at 238 kcal per 100 g and "2 rotis" at 353. Pending test analyses were discarded.
+
+**Verified live:** "2 rotis with dal and a katori of rice" now gives Roti 80 g 224 kcal, Dal 150 g 193 kcal (was 357) and Rice 150 g 181 kcal. A meat pie no longer crashes the function. The photo uses two models with no duplicate fat lines. Tests: 19 unit checks pass, and the database tests show 95 PASS.

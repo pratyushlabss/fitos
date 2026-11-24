@@ -3,7 +3,7 @@ import { authenticate, serviceClient } from "../_shared/auth.ts";
 import { fail, json, preflight } from "../_shared/cors.ts";
 import { embed, toVector } from "../_shared/embed.ts";
 import { normalizeBarcode, offLookupBarcode } from "../_shared/off.ts";
-import type { Draft, DraftItem, Serving } from "../_shared/pipeline.ts";
+import { checkPer100, type Draft, type DraftItem, type Serving } from "../_shared/pipeline.ts";
 
 Deno.serve(async (req) => {
   const early = preflight(req);
@@ -104,13 +104,14 @@ Deno.serve(async (req) => {
     quantity: 1,
     unit: "serving",
     grams,
-    per100: {
+    // Label values are trusted; only physical caps apply, and kcal is derived when the label lacks it.
+    per100: checkPer100({
       kcal: Number(nutrition?.calories ?? 0),
       protein_g: Number(nutrition?.protein_g ?? 0),
       carbs_g: Number(nutrition?.carbs_g ?? 0),
       fat_g: Number(nutrition?.fat_g ?? 0),
       fibre_g: Number(nutrition?.fiber_g ?? 0),
-    },
+    }, !Number(nutrition?.calories)),
     source: "barcode",
     own: false,
     confidence: 0.9,

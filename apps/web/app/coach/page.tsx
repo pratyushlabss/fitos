@@ -56,7 +56,8 @@ export default function CoachPage() {
       void queryClient.invalidateQueries({ queryKey: ["nutrition-history"] });
     },
     onError: (error, text) => {
-      setLocal((current) => current.filter((m) => !m.pending));
+      // Drop the unsent bubble; the text goes back into the input to retry.
+      setLocal((current) => current.filter((m) => !m.pending).filter((m, i, list) => !(i === list.length - 1 && m.role === "user" && m.content === text)));
       setInput(text);
       toast(error.message, "error");
     },

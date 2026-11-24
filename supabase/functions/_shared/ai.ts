@@ -1,5 +1,6 @@
 // The single AI provider: Groq (OpenAI-compatible chat completions), plain REST, no SDK.
-// Secrets: AI_API_KEY, AI_MODEL. Every request passes the call guard (per-user and global daily caps).
+// Two roles on one key: AI_VISION_MODEL reads photos, AI_TEXT_MODEL reasons over candidates and runs the coach.
+// Model ids come only from secrets. Every request passes the call guard (per-user and global daily caps).
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 
 export type JsonSchema = {
@@ -33,20 +34,27 @@ export class AiError extends Error {
 const PROVIDER = "groq";
 const ENDPOINT = "https://api.groq.com/openai/v1/chat/completions";
 const API_KEY = Deno.env.get("AI_API_KEY") ?? "";
-const MODEL = Deno.env.get("AI_MODEL") || "qwen/qwen3.8-27b";
+// AI_MODEL is the legacy single-model secret, used only when a role-specific secret is missing.
+const VISION_MODEL = Deno.env.get("AI_VISION_MODEL") || Deno.env.get("AI_MODEL") || "";
+const TEXT_MODEL = Deno.env.get("AI_TEXT_MODEL") || Deno.env.get("AI_MODEL") || "";
+export type Role = "vision" | "text";
+const modelFor = (role: Role) => (role === "vision" ? VISION_MODEL : TEXT_MODEL);
 const TIMEOUT_MS = 60_000;
 const MAX_IMAGES = 3;
-// Groq free tier: ~1000 output tokens per minute per model, so a request must never ask for more.
-const LOG_MAX_TOKENS = envIntRaw("AI_MAX_OUTPUT_TOKENS", 950);
-const COACH_MAX_TOKENS = Math.min(LOG_MAX_TOKENS, 700);
+// Groq free tier: 8,000 tokens per minute per model. Reasoning tokens count as output, so text gets more room.
+const VISION_MAX_TOKENS = envIntRaw("AI_MAX_OUTPUT_TOKENS", 950);
+const TEXT_MAX_TOKENS = envIntRaw("AI_TEXT_MAX_OUTPUT_TOKENS", 2400);
 
 function envIntRaw(name: string, fallback: number): number {
   const value = Number(Deno.env.get(name));
   return Number.isInteger(value) && value > 0 ? value : fallback;
 }
 
-export const aiInfo = { provider: PROVIDER, model: MODEL, configured: Boolean(API_KEY) };
-export const PAUSED_MESSAGE = "AI paused, use search or manual log.";
+export const aiInfo = { provider: PROVIDER, model: TEXT_MODEL, visionModel: VISION_MODEL, textModel: TEXT_MODEL, configured: Boolean(API_KEY && VISION_MODEL && TEXT_MODEL) };
+// Daily caps reached (ours): nothing more today.
+export const PAUSED_MESSAGE = "AI paused for today, use search or manual log.";
+// Provider rate limit or timeout: transient.
+export const BUSY_MESSAGE = "AI busy, try again or log manually.";
 
 const envInt = (name: string, fallback: number) => {
   const value = Number(Deno.env.get(name));
@@ -63,7 +71,7 @@ export const callLimits = {
 type Usage = { tokensIn: number; tokensOut: number };
 
 export type Guard = {
-  reserve(): Promise<string>;
+  reserve(model: string): Promise<string>;
   record(id: string, usage: Usage): Promise<void>;
   release(id: string): Promise<void>;
 };
@@ -71,13 +79,13 @@ export type Guard = {
 // One locked SQL call checks the user's calls today (< 30) and everyone's calls today (< AI_DAILY_CALL_CAP).
 export function createGuard(admin: SupabaseClient, userId: string | null, action: string, onCall?: () => void): Guard {
   return {
-    async reserve() {
+    async reserve(model) {
       if (!userId) throw new AiError("limit", PAUSED_MESSAGE);
       const { data, error } = await admin.rpc("ai_guard_reserve", {
         p_user: userId,
         p_action: action,
         p_provider: PROVIDER,
-        p_model: MODEL,
+        p_model: model,
         p_user_daily_limit: callLimits.userDailyLimit,
         p_global_daily_cap: callLimits.dailyCallCap,
       });
@@ -147,29 +155,30 @@ type GroqResponse = {
 };
 
 // Qwen 3 on Groq: reasoning_effort "none" turns thinking off; reasoning_format "hidden" keeps it out of the reply.
-function reasoningParams(thinking: boolean): Record<string, unknown> {
-  if (MODEL.startsWith("qwen/")) return thinking ? { reasoning_format: "hidden" } : { reasoning_effort: "none" };
-  if (MODEL.startsWith("openai/gpt-oss")) return { reasoning_effort: thinking ? "medium" : "low", include_reasoning: false };
+function reasoningParams(model: string, thinking: boolean): Record<string, unknown> {
+  if (model.startsWith("qwen/")) return thinking ? { reasoning_format: "hidden" } : { reasoning_effort: "none" };
+  if (model.startsWith("openai/gpt-oss")) return { reasoning_effort: thinking ? "medium" : "low", include_reasoning: false };
   return {};
 }
 
-async function groq(body: Record<string, unknown>): Promise<GroqResponse & { usage_parsed: Usage }> {
+async function groq(model: string, body: Record<string, unknown>): Promise<GroqResponse & { usage_parsed: Usage }> {
   let response: Response;
   try {
     response = await fetch(ENDPOINT, {
       method: "POST",
       headers: { Authorization: `Bearer ${API_KEY}`, "Content-Type": "application/json", "User-Agent": "FitOS/1.0" },
-      body: JSON.stringify({ model: MODEL, ...body }),
+      body: JSON.stringify({ model, ...body }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
   } catch (error) {
-    throw new AiError("provider", `AI request failed: ${error instanceof Error ? error.message : "network error"}`);
+    console.error("groq request failed", error instanceof Error ? `${error.name}: ${error.message}` : error);
+    throw new AiError("limit", BUSY_MESSAGE);
   }
   const text = await response.text();
   if (!response.ok) {
     console.error(`groq ${response.status}`, text.slice(0, 500));
-    // Rate limits and quota: pause, never retry in a loop.
-    if (response.status === 429 || response.status === 402 || response.status === 403) throw new AiError("limit", PAUSED_MESSAGE);
+    // Rate limits, quota, overload, gateway timeouts: tell the user, never retry in a loop.
+    if ([402, 403, 429, 498, 500, 502, 503, 504].includes(response.status)) throw new AiError("limit", BUSY_MESSAGE);
     throw new AiError("provider", `AI service error (${response.status}).`);
   }
   const parsed = JSON.parse(text) as GroqResponse;
@@ -177,8 +186,8 @@ async function groq(body: Record<string, unknown>): Promise<GroqResponse & { usa
 }
 
 // Runs one provider request inside the guard: reserve, call, record tokens; release if it failed.
-async function guarded<R extends { usage_parsed: Usage }>(guard: Guard, call: () => Promise<R>): Promise<R> {
-  const id = await guard.reserve();
+async function guarded<R extends { usage_parsed: Usage }>(guard: Guard, model: string, call: () => Promise<R>): Promise<R> {
+  const id = await guard.reserve(model);
   let result: R;
   try {
     result = await call();
@@ -200,9 +209,12 @@ function safeParse(value: string): unknown {
 
 // ---------- public interface ----------
 
-// Logging path: JSON mode, schema in the system prompt, thinking off. Validated, retried once.
-export async function generateJSON<T>(prompt: string, schema: JsonSchema, images: ImageInput | ImageInput[] | undefined, guard: Guard): Promise<T> {
-  if (!API_KEY) throw new AiError("not_configured", "AI is not set up yet. Log it manually for now.");
+// Logging path: JSON mode, schema in the system prompt, light thinking. Validated, retried once.
+// Images force the vision model; otherwise the role picks the model.
+export async function generateJSON<T>(prompt: string, schema: JsonSchema, images: ImageInput | ImageInput[] | undefined, guard: Guard, role: Role = "text"): Promise<T> {
+  const useRole: Role = images ? "vision" : role;
+  const model = modelFor(useRole);
+  if (!API_KEY || !model) throw new AiError("not_configured", "AI is not set up yet. Log it manually for now.");
   const imageList = (Array.isArray(images) ? images : images ? [images] : []).slice(0, MAX_IMAGES);
   const system =
     "You are a precise nutrition data extractor. Reply with one minified JSON object on a single line, no prose and no extra whitespace, " +
@@ -213,16 +225,16 @@ export async function generateJSON<T>(prompt: string, schema: JsonSchema, images
     const text = feedback ? `${prompt}\n\nYour previous JSON was invalid: ${feedback}\nReturn corrected JSON only.` : prompt;
     const content: Array<Record<string, unknown>> = [{ type: "text", text }];
     for (const image of imageList) content.push({ type: "image_url", image_url: { url: `data:${image.mimeType};base64,${image.base64}` } });
-    const result = await guarded(guard, () =>
-      groq({
+    const result = await guarded(guard, model, () =>
+      groq(model, {
         messages: [
           { role: "system", content: system },
           { role: "user", content: imageList.length ? content : text },
         ],
         response_format: { type: "json_object" },
         temperature: 0.2,
-        max_completion_tokens: LOG_MAX_TOKENS,
-        ...reasoningParams(false),
+        max_completion_tokens: useRole === "vision" ? VISION_MAX_TOKENS : TEXT_MAX_TOKENS,
+        ...reasoningParams(model, false),
       }),
     );
     const raw = result.choices?.[0]?.message?.content ?? "";
@@ -239,9 +251,10 @@ export async function generateJSON<T>(prompt: string, schema: JsonSchema, images
   throw new AiError("invalid_output", "The AI gave an answer we could not read. Try rephrasing, or log it manually.");
 }
 
-// Coach path: OpenAI-style tools, thinking allowed (hidden from the reply).
+// Coach path: the text model with OpenAI-style tools, thinking allowed (hidden from the reply).
 export async function chat(system: string, messages: ChatMessage[], tools: ToolDef[], guard: Guard): Promise<ChatResult> {
-  if (!API_KEY) throw new AiError("not_configured", "The coach is not set up yet.");
+  const model = TEXT_MODEL;
+  if (!API_KEY || !model) throw new AiError("not_configured", "The coach is not set up yet.");
   const out: GroqMessage[] = [{ role: "system", content: system }];
   for (const message of messages) {
     if (message.role === "user") out.push({ role: "user", content: message.content });
@@ -249,14 +262,14 @@ export async function chat(system: string, messages: ChatMessage[], tools: ToolD
     else if (message.raw) out.push(message.raw as GroqMessage);
     else out.push({ role: "assistant", content: message.content });
   }
-  const result = await guarded(guard, () =>
-    groq({
+  const result = await guarded(guard, model, () =>
+    groq(model, {
       messages: out,
       tools: tools.map((tool) => ({ type: "function", function: { name: tool.name, description: tool.description, parameters: tool.parameters } })),
       tool_choice: "auto",
       temperature: 0.5,
-      max_completion_tokens: COACH_MAX_TOKENS,
-      ...reasoningParams(true),
+      max_completion_tokens: TEXT_MAX_TOKENS,
+      ...reasoningParams(model, true),
     }),
   );
   const message = result.choices?.[0]?.message ?? {};

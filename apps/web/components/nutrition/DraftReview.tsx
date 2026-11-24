@@ -91,6 +91,14 @@ export function DraftReview({
         ) : null}
       </div>
 
+      {draft.notes?.length ? (
+        <ul className="space-y-1 rounded-[14px] border border-dashed border-line p-3 text-xs leading-5 text-muted">
+          {draft.notes.map((note) => (
+            <li key={note}>{note}</li>
+          ))}
+        </ul>
+      ) : null}
+
       {draft.question ? (
         <div className="rounded-2xl border border-amber-300/20 bg-amber-300/5 p-3 text-sm text-amber-100">
           <p>{draft.question}</p>

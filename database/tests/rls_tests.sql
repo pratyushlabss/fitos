@@ -173,5 +173,8 @@ SET ROLE anon; SELECT set_config('request.jwt.claim.sub','',false);
 SELECT t_check('anon cannot read profiles', t_err($$SELECT * FROM profiles$$) LIKE '%permission denied%');
 SELECT t_check('anon cannot call get_feed', t_err($$SELECT * FROM get_feed()$$) LIKE '%permission denied%');
 SELECT t_check('anon cannot call private helper', t_err($$SELECT private.is_blocked_between(gen_random_uuid(), gen_random_uuid())$$) LIKE '%permission denied%');
+SELECT t_check('anon cannot read portion_ranges', t_err($$SELECT * FROM portion_ranges$$) LIKE '%permission denied%');
 RESET ROLE;
 SELECT t_check('every public table has RLS', NOT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND NOT rowsecurity));
+SELECT t_check('portion_ranges seeded with unit defaults', (SELECT count(*) FROM portion_ranges WHERE name_pattern IS NULL) = 7 AND (SELECT count(*) FROM portion_ranges) >= 40);
+SELECT t_check('dosa range 70-150 g', (SELECT min_g = 70 AND max_g = 150 FROM portion_ranges WHERE unit = 'piece' AND name_pattern = 'dosa'));
