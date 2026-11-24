@@ -352,3 +352,17 @@ Visual layer only. No data logic, Supabase calls, edge functions or routes chang
   - The video goes live with the meal preselected. The shutter leads to analysing and then the "No food found" error state, and "Try again" returns to the camera.
   - Closing removes the stream, and permission-denied shows the native camera fallback.
   - Going over the Groq per-minute token limit showed "AI busy, try again or log manually".
+
+## Food AI fix: Phase 4, accuracy eval (2026-11-24)
+
+- `tests/food-eval/cases.json` has 20 text cases (Indian, Australian and Western) with expected items and approximate kcal, plus photo slots for your images in `tests/food-eval/images/`. `scripts/food_eval.ts` runs them against the deployed function.
+
+### Before tuning (text, live)
+
+
+**text:** 20 cases, 1 errors
+
+- Cause 1: for foods it didn't break down, the text model often returned per100 as all zeros, so 6 items had 0 kcal (chai, Marie biscuits, flat white, croissant, oats, cheeseburger).
+- Cause 2: a 4-dish meal still hit the CPU limit.
+- Cause 3: counts were dropped (2 aloo paratha became 100 g).
+- Fixes: a compact repair call fills zero values; inline embeddings are cut to 6 and new foods are left to the scheduled worker; the prompt now has count rules and more typical values per 100 g.

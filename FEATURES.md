@@ -260,3 +260,27 @@ This supersedes the provider and spend rows above. There is no monthly budget or
 | 30 calls per user per day, plus a global daily cap | Working | `011_ai_call_guard.sql` |
 | Admin usage card: calls today against the cap, calls this month, tokens | Working once `ADMIN_USER_ID` is set | `components/profile/AdminUsageCard.tsx` |
 | Free-tier throughput | Limited | About 1,000 output tokens per minute across the app, roughly one or two AI meal analyses a minute. Database matches and the cache don't use it. |
+
+## Food AI fix and camera logging (2026-11-24)
+
+This supersedes the nutrition and AI rows above. Each status was verified on the live project. See `DIAGNOSIS.md` for the root causes.
+
+| Feature | Status | Main files |
+|---|---|---|
+| Sign-in with email and password, no confirmation email | Working | `app/login/page.tsx`, `lib/data/auth.ts` |
+| Two models on one Groq key: vision for photos, text for logging, photo resolution and coach | Working | `_shared/ai.ts` |
+| Photo: detect, second look below 0.6, per-item retrieval, text-model resolution | Working | `_shared/pipeline.ts` `analyzePhoto` |
+| Text: cache, database match, then the text model with candidates | Working | `analyzeText` |
+| Sanity checks: kcal against macros, per-100 g caps, portion ranges, low-confidence items dropped with notes | Working | `applySanity`, `portion_ranges` (migration 012) |
+| Long meals without CPU-limit crashes | Working (was Broken) | embedding budget in `pipeline.ts` |
+| AI calls from localhost on any port and from a phone on the LAN | Working (was Broken) | `_shared/cors.ts` |
+| "AI busy, try again or log manually" on 429, 5xx and timeouts, never retried | Working | `_shared/ai.ts` |
+| Camera-first logging: shutter, gallery, live barcode, torch, Type and Search hand-off, meal preselected | Working | `components/nutrition/CameraLogger.tsx` |
+| Native camera fallback when permission is denied or `getUserMedia` fails | Working | `CameraLogger.tsx` |
+| Review: edit, remove, "Add item" from the food database, sanity notes | Working | `components/nutrition/DraftReview.tsx` |
+| Coach logs food directly; fibre shown on Home and Nutrition | Working | `_shared/coach.ts`, `app/page.tsx` |
+| Embed-worker every 5 minutes | Working (was not scheduled) | `pg_cron` job `fitos-embed-worker` |
+| Accuracy eval: 20 text cases, photo slots | Ready; results in PROGRESS.md | `tests/food-eval/`, `scripts/food_eval.ts` |
+| IFCT seed data | Not loaded | Needs `data/ifct2017.csv`, then `scripts/import_ifct.ts` |
+| Llama text model | Not available on this key | `openai/gpt-oss-120b` is used instead |
+| Local `supabase functions serve` | Not possible here | Needs Docker |

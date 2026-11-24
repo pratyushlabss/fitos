@@ -74,18 +74,21 @@ npx supabase db push
 
 ### Deploy edge functions and secrets
 
-FitOS uses one AI provider: **Groq** (OpenAI-compatible API, free tier). Its secrets:
+FitOS uses one AI provider, **Groq**, with one key and two models: a vision model reads photos, and a text model resolves foods and runs the coach. Model ids come only from secrets.
 
 | Secret | Value |
 |---|---|
 | `AI_API_KEY` | Your Groq key (`gsk_…`) from https://console.groq.com/keys |
-| `AI_MODEL` | Optional. Default `qwen/qwen3.8-27b`, the model on your account that accepts images. Text-only alternatives are `openai/gpt-oss-20b` and `openai/gpt-oss-120b`, but photo logging needs a vision model. |
-| `AI_DAILY_CALL_CAP` | Hard cap on AI calls per UTC day across all users. Default 300. Groq free allows 1,000 requests a day. Each user is also limited to 30 a day. |
+| `AI_VISION_MODEL` | A Groq model that accepts images. On this key only `qwen/qwen3.8-27b` does. Check with `curl https://api.groq.com/openai/v1/models -H "Authorization: Bearer $AI_API_KEY"`. |
+| `AI_TEXT_MODEL` | The text model for logging and the coach. Use a Llama "versatile" model if your key lists one; this key has none, so it uses `openai/gpt-oss-120b`. |
+| `AI_DAILY_CALL_CAP` | Hard cap on AI calls per UTC day across all users. Default 300. Each user is also limited to 30 a day. A photo uses 2 calls, or 3 when it gets a second look. |
 | `ADMIN_USER_ID` | Your user id. Only this user sees the AI usage card on Profile. |
-| `AI_MAX_OUTPUT_TOKENS` | Optional. Default 950. Keep it under your Groq output-tokens-per-minute limit, which is 1,000 on the free tier. |
+| `AI_MAX_OUTPUT_TOKENS` / `AI_TEXT_MAX_OUTPUT_TOKENS` | Optional. Defaults 950 for vision and 2400 for text. |
+
+`AI_MODEL` is still read as a fallback when a role-specific secret is missing.
 
 ```bash
-npx supabase secrets set AI_API_KEY=<groq key> AI_MODEL=qwen/qwen3.8-27b AI_DAILY_CALL_CAP=300 ADMIN_USER_ID=<your user id>
+npx supabase secrets set AI_API_KEY=<groq key> AI_VISION_MODEL=qwen/qwen3.8-27b AI_TEXT_MODEL=openai/gpt-oss-120b AI_DAILY_CALL_CAP=300 ADMIN_USER_ID=<your user id>
 npx supabase functions deploy nutrition-ai
 npx supabase functions deploy barcode
 npx supabase functions deploy embed-worker --no-verify-jwt
@@ -99,7 +102,7 @@ npx supabase functions deploy embed-worker --no-verify-jwt
 - **JSON** uses `response_format: {type: "json_object"}` with the schema in the system prompt. Answers are validated and retried once.
 - **Images** go as base64 data URLs: at most 3 per request, compressed to 1024 px WebP first.
 - **Call guard:** before every AI request, one locked SQL call checks today's total calls against `AI_DAILY_CALL_CAP` and the user's calls today against 30. If either fails, no AI call is made and the app says "AI paused, use search or manual log". Search, barcode and manual logging keep working. Database matches and cache hits never count.
-- **429 from Groq** shows the same paused message, with no retry loop. The slot is given back.
+- **429, 5xx or a timeout from Groq** shows "AI busy, try again or log manually", with no retry loop. The slot is given back.
 - Token counts are logged per request in `ai_usage`. Groq free has no billing, so there is no cost tracking.
 - **Free-tier throughput:** Groq allows about 1,000 output tokens per minute for this model across the whole app. A text meal analysis uses about 750 output tokens, a photo about 100 to 500, and a coach turn about 50. So expect roughly one or two AI meal analyses per minute for everyone combined. Database matches and the semantic cache don't use any of that budget.
 - **Finding your user id:** sign in to the app once, then copy your UID from **Authentication → Users** in Supabase and set it as `ADMIN_USER_ID`.

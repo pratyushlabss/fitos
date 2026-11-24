@@ -1,0 +1,27 @@
+{
+  "text": [
+    { "input": "2 rotis with 1 katori dal and a katori of rice", "items": ["roti", "dal", "rice"], "kcal": 600 },
+    { "input": "2 masala dosa with sambar and coconut chutney", "items": ["dosa", "sambar", "chutney"], "kcal": 620 },
+    { "input": "3 idli with 1 katori sambar", "items": ["idli", "sambar"], "kcal": 290 },
+    { "input": "1 plate chicken biryani with raita", "items": ["biryani", "raita"], "kcal": 750 },
+    { "input": "2 aloo paratha with curd and pickle", "items": ["paratha", "curd", "pickle"], "kcal": 680 },
+    { "input": "1 katori paneer butter masala and 2 butter naan", "items": ["paneer", "naan"], "kcal": 900 },
+    { "input": "1 bowl poha with peanuts", "items": ["poha"], "kcal": 300 },
+    { "input": "2 vada and 1 cup filter coffee", "items": ["vada", "coffee"], "kcal": 410 },
+    { "input": "1 katori rajma with 1 katori rice", "items": ["rajma", "rice"], "kcal": 420 },
+    { "input": "1 cup masala chai and 2 marie biscuits", "items": ["chai", "biscuit"], "kcal": 160 },
+    { "input": "meat pie with tomato sauce", "items": ["pie", "sauce"], "kcal": 480 },
+    { "input": "flat white and a ham and cheese croissant", "items": ["flat white", "croissant"], "kcal": 520 },
+    { "input": "2 slices of toast with vegemite and butter", "items": ["toast", "vegemite", "butter"], "kcal": 260 },
+    { "input": "smashed avocado on sourdough with a poached egg", "items": ["avocado", "sourdough", "egg"], "kcal": 450 },
+    { "input": "a sausage roll and a can of coke", "items": ["sausage roll", "coke"], "kcal": 520 },
+    { "input": "chicken parmigiana with chips and salad", "items": ["parmigiana", "chips", "salad"], "kcal": 1100 },
+    { "input": "2 scrambled eggs on 2 slices of toast", "items": ["egg", "toast"], "kcal": 420 },
+    { "input": "a bowl of oats with milk and a banana", "items": ["oats", "milk", "banana"], "kcal": 380 },
+    { "input": "grilled chicken breast with 1 cup rice and broccoli", "items": ["chicken", "rice", "broccoli"], "kcal": 540 },
+    { "input": "a cheeseburger with medium fries", "items": ["burger", "fries"], "kcal": 850 }
+  ],
+  "photos": [
+    { "file": "01.jpg", "items": [], "kcal": 0, "note": "Fill in: expected item keywords and approximate kcal for each photo you add" }
+  ]
+}

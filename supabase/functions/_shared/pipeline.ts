@@ -97,7 +97,7 @@ const n = (value: unknown) => {
 const round1 = (value: number) => Math.round(value * 10) / 10;
 
 // gte-small runs on the function's own CPU: embed each text once per request, one at a time.
-const MAX_EMBEDS_PER_REQUEST = 12;
+const MAX_EMBEDS_PER_REQUEST = 6;
 async function embedOnce(ctx: Ctx, text: string): Promise<number[] | null> {
   const key = text.trim().toLowerCase();
   const hit = ctx.embeddings.get(key);
@@ -278,6 +278,7 @@ function itemFromCandidate(c: Candidate, quantity: number, unit: Unit | null, gr
 
 // New foods are embedded inline only while the per-request budget lasts; embed-worker catches the rest.
 async function embedFoods(ctx: Ctx, ids: string[]): Promise<void> {
+  if (ids.length) return; // embed-worker (pg_cron, every 5 minutes) embeds new foods; inline embedding hit the CPU limit
   const room = Math.min(ids.length, Math.max(0, MAX_EMBEDS_PER_REQUEST - ctx.embeddings.size));
   if (!room) return;
   const { data } = await ctx.admin.rpc("foods_to_embed", { p_limit: room, p_ids: ids.slice(0, room) });
@@ -444,7 +445,8 @@ const GUIDE = `Portion guide: 1 roti ~40 g, 1 katori ~150 g, 1 ladle ~120 g, 1 i
 Dish names are the food only, singular, without counts or units ("Roti", not "2 rotis").
 grams is the total cooked weight eaten. Recipes are home-style: include the cooking fat (oil, ghee or butter), coconut, onion, tempering and so on.
 Ingredient grams are raw weights for the whole amount eaten, so they are less than the cooked weight for dals, curries, rice and porridge (the rest is water). Example: 1 katori (150 g) cooked toor dal is about 40 g raw toor dal, 5 g ghee or oil, 15 g onion and tomato; about 190 kcal.
-Typical cooked values per 100 g: dal 110-140 kcal, sambar 60-90, plain rice 130, roti 260-300, dosa 170-210, idli 130-150, chicken curry 150-200, paneer curry 200-260.`;
+Every food needs real per100 numbers; zeros only for water, black coffee or tea, and diet drinks. Respect counts: "2 aloo paratha" is quantity 2.
+Typical values per 100 g as served: chai with milk and sugar 50-70, croissant 400-430, cheeseburger 250-280, fries 280-320, biryani 160-200, aloo paratha 260-300, vada 280-320, oats cooked with milk 100-130, sausage roll 300-350, meat pie 230-270, dal 110-140 kcal, sambar 60-90, plain rice 130, roti 260-300, dosa 170-210, idli 130-150, chicken curry 150-200, paneer curry 200-260.`;
 
 // "2 rotis" -> "Roti": counts and units belong to the portion, not the food name.
 export function cleanName(name: string): string {
@@ -456,6 +458,31 @@ export function cleanName(name: string): string {
   const singular = /^[a-z]+s$/i.test(stripped) && !/ss$/i.test(stripped) && name.trim() !== stripped ? stripped.slice(0, -1) : stripped;
   const out = singular || name.trim();
   return out.charAt(0).toUpperCase() + out.slice(1);
+}
+
+// The text model sometimes leaves per100 at zero for foods it doesn't break down: one compact call fills them.
+const ZERO_OK = /\b(water|black coffee|black tea|diet|zero|sugar[- ]free soda|soda water)\b/i;
+const FILL_SCHEMA: JsonSchema = {
+  type: "object",
+  properties: { values: { type: "array", items: { type: "object", properties: { name: { type: "string" }, per100: PER100 }, required: ["name", "per100"] } } },
+  required: ["values"],
+};
+async function fillMissing(ctx: Ctx, dishes: AiDish[], candidates: Candidate[]): Promise<AiDish[]> {
+  const ids = new Set(candidates.map((c) => c.food_id));
+  const missing = dishes.filter((d) => !(d.matched_food_id && ids.has(d.matched_food_id)) && !(d.ingredients ?? []).length && n(d.per100.kcal) <= 0 && !ZERO_OK.test(d.name));
+  if (!missing.length) return dishes;
+  const out = await generateJSON<{ values: Array<{ name: string; per100: unknown }> }>(
+    `Give typical per-100 g nutrition as served, [kcal, protein_g, carbs_g, fat_g, fibre_g], for: ${missing.map((d) => d.name).join("; ")}. Same order. Never all zeros.`,
+    FILL_SCHEMA,
+    undefined,
+    ctx.guard,
+    "text",
+  );
+  return dishes.map((d) => {
+    const i = missing.indexOf(d);
+    const v = i >= 0 ? out.values?.[i] : undefined;
+    return v ? { ...d, per100: checkPer100(toPer100(v.per100), true) } : d;
+  });
 }
 
 // Turns AI dishes into draft items using candidates and the database; creates foods the DB lacks.
@@ -630,7 +657,7 @@ ${GUIDE}`;
   const ai = await generateJSON<{ cuisine: string; confidence: number; question: string | null; dishes: AiDish[] }>(prompt, TEXT_SCHEMA, undefined, ctx.guard, "text");
   const created: string[] = [];
   const cuisine = normalizeCuisine(ai.cuisine);
-  const resolved = await resolveDishes(ctx, cleanDishes(normalizeDishes(ai.dishes ?? [])), candidates, cuisine, created);
+  const resolved = await resolveDishes(ctx, await fillMissing(ctx, cleanDishes(normalizeDishes(ai.dishes ?? [])), candidates), candidates, cuisine, created);
   await embedFoods(ctx, created);
   const checked = await sanityCheck(ctx, resolved);
   const confidence = Math.max(0, Math.min(1, n(ai.confidence)));
@@ -881,7 +908,7 @@ ${GUIDE}`,
     question = ai.question;
     raw = { detection, secondLook, resolve: ai };
     const dishes = cleanDishes(normalizeDishes(ai.dishes ?? [])).map((dish, i) => ({ ...dish, confidence: Math.min(n(dish.confidence) || 0.5, detection.items[i]?.confidence ?? 0.5) }));
-    items = (await resolveDishes(ctx, dishes, candidates, cuisine, created)).map((item, i) => ({ ...item, key: `p${i}` }));
+    items = (await resolveDishes(ctx, await fillMissing(ctx, dishes, candidates), candidates, cuisine, created)).map((item, i) => ({ ...item, key: `p${i}` }));
   }
   await embedFoods(ctx, created);
   const checked = await sanityCheck(ctx, items);
