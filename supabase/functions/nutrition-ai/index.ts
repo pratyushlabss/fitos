@@ -4,6 +4,7 @@ import { encodeBase64 } from "jsr:@std/encoding@1/base64";
 import { AiError, aiInfo, callLimits } from "../_shared/ai.ts";
 import { authenticate, serviceClient } from "../_shared/auth.ts";
 import { coachReply } from "../_shared/coach.ts";
+import { foodBreakdown } from "../_shared/coach_tools.ts";
 import { corsHeaders, fail, json, preflight } from "../_shared/cors.ts";
 import { analyzePhoto, analyzeText, confirmDraft, createCtx, type MealType, previewMatch, searchFoods, THRESHOLDS } from "../_shared/pipeline.ts";
 
@@ -69,6 +70,8 @@ Deno.serve(async (req) => {
         await auth.userClient.from("food_analyses").update({ status: "discarded" }).eq("id", String(body.analysis_id ?? "")).eq("status", "pending");
         return json(req, { ok: true });
       }
+      case "breakdown":
+        return json(req, await foodBreakdown(ctx, String(body.food_id ?? ""), Number(body.grams) || null));
       case "preview":
         return json(req, await previewMatch(ctx, String(body.text ?? "")));
       case "search":

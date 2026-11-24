@@ -319,3 +319,17 @@ This supersedes the nutrition and AI rows above. Each status was verified on the
 | Manual add with an Atwater check (warns above 15%), optional sugar and sodium, saved as the user's own tier | Working | `ManualTab`, `createMyFood` |
 | About and data sources screen | Working; the attribution fills in on import | `app/profile/page.tsx`, `lib/dataSources.json` |
 | Search eval: top-3 ≥ 90%, traps 100% NO_MATCH, partial words 100% CLARIFY | Ready; needs `eval_queries.csv` | `scripts/food_search_eval.ts` |
+
+## Grounded coach on the food database (2026-11-24)
+
+| Feature | Status | Main files |
+|---|---|---|
+| Grounding check: reply numbers must trace to this turn's tool results; regenerates once, then strips and logs | Working | `_shared/grounding.ts`, `coach_grounding_log` |
+| "(estimate)" tag on community and ai_estimate foods | Working | `tagEstimates`, `label` |
+| Unknown food: says so and offers manual entry or "describe the ingredients"; part-real names get one question | Working | `lookupFood` via the gate |
+| Tools: `lookup_food`, `explain_food` (regional aliases), `food_breakdown` (fibre, sugar, sat fat, sodium, micros, ingredients), `tweak_dish`, `suggest_swaps`, `nutrient_gaps`, `plan_week` | Working; full coverage needs the food DB import | `_shared/coach_tools.ts`, `_shared/coach.ts` |
+| Meal solver in real units ("2 idli + 1 katori sambar + 1 egg"): protein first, then kcal ±5%; the user's foods, then recipe, then lab tiers | Working | `buildOptions`, `planDay` |
+| Plans saved for one tap (`meal_plans`); cards with "Log this", "Add to plan", "See breakdown", "Swap" | Working | `app/coach/page.tsx` |
+| Context: top 20 usual foods with ids, cuisine mix, oil habit, latest nutrient gaps | Working | `contextBlock` |
+| Weekly review with fibre, sodium, best and worst meal, and one swap; evening nudge sized from the user's own portions | Working | migration 015 |
+| Coach eval: 55 cases with traceability, compute_item ±1%, plan targets, unknown and clarify checks | Ready; blocked by the food DB import and Groq's daily token limit | `tests/coach-eval`, `scripts/coach_eval.ts` |

@@ -191,3 +191,6 @@ SELECT t_check('lab row outranks community with same name', (SELECT tier FROM ma
 INSERT INTO foods (name, source) VALUES ('Zesttest ai dish', 'ai');
 SELECT t_check('ai source defaults to ai_estimate tier', (SELECT tier FROM foods WHERE name = 'Zesttest ai dish') = 'ai_estimate');
 SELECT t_check('food_vocabulary has words', EXISTS (SELECT 1 FROM food_vocabulary() WHERE word = 'zesttest'));
+SELECT t_check('weekly_review v2 runs', private.weekly_review() >= 0);
+SELECT t_check('daily_nudges v2 runs', private.daily_nudges() >= 0);
+SELECT t_check('grounding log and plans have RLS', (SELECT bool_and(rowsecurity) FROM pg_tables WHERE tablename IN ('coach_grounding_log','meal_plans')));

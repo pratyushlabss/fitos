@@ -116,6 +116,7 @@ npx supabase functions deploy embed-worker --no-verify-jwt
 | 010 | RAG: pgvector, `match_foods`, semantic cache, coach memory |
 | 011 | AI call guard: per-user and global daily caps |
 | 012 | `portion_ranges` for portion sanity checks |
+| 015 | Coach grounding: `compute_item` with sat fat and sugar, `coach_grounding_log`, `meal_plans`, weekly review with fibre, sodium, best and worst meal and a swap; evening nudge sized from the user's own portions |
 | 014 | Food DB mapping: `foods.tier`, `source_ref`, `energy_check`, `notes`, `embed_text`, `external_id`; tier-priority `match_foods`; `food_vocabulary()` for the no-hallucination gate |
 | 013 | Macro engine: yield, fat absorption, dish methods, densities; micronutrients; `compute_item`; `user_dish_prefs`; profile fields for BMR; `coach_insights`; jobs for adaptive targets, weekly review, nudges and dish promotion; 32 verified staple foods |
 

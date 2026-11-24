@@ -451,3 +451,24 @@ Matched-from-database cases are already accurate: rotis/dal/rice 0%, poha 0%, ch
 - **Every case that got an answer passed.** The ≥ 90% target can't be measured today: one full coach eval needs about 225,000 tokens, which is more than this model's daily free budget.
 - **Changes from this:** coach rounds now use low reasoning effort, a 1,200-token output cap, tool results trimmed to 2,500 characters and 6 history messages, so one turn fits the 8,000-tokens-a-minute limit.
 - **Production impact:** on Groq's free tier the text model's 200,000 tokens a day cover about 30–40 coach turns plus text analyses for all users combined. Options are Groq's Dev tier, or pointing `AI_TEXT_MODEL` at `openai/gpt-oss-20b`, which has its own budget.
+
+## Grounded coach on the food database (2026-11-24)
+
+- **Migration 015** (applied live): `compute_item` returns sat fat and sugar, and micros keep sugar.
+  - New tables: `coach_grounding_log` and `meal_plans`.
+  - The weekly review adds fibre and sodium averages, best and worst meal by protein per 100 kcal, and one swap from the same category with at least 50% more protein per kcal.
+  - The evening nudge names the user's most frequent protein food with the portion count that closes the gap, from their own logged rows.
+  - Database tests: 109 PASS.
+- **Grounding:**
+  - Numbers next to kcal, g or mg must match a tool result from this turn, within 1%, or a sum or difference of two.
+  - Otherwise the reply is regenerated once with "use tools for every number". After that the numbers are stripped and "Let me check that" is added. Both cases are logged.
+  - Community and ai_estimate names get "(estimate)".
+- **Tools:**
+  - New: `lookup_food`, `explain_food`, `food_breakdown`, `tweak_dish` (scale, remove, add, replace on `dish_ingredients`, with before and after), `suggest_swaps` (more protein, less fat, more fibre, less sodium or fewer kcal, with deltas), `nutrient_gaps` (7 or 14 days against fibre 28 g, sodium < 2,000 mg, sugar < 50 g, iron, calcium and the protein target) and `plan_week`. Every number comes from `compute_item`.
+  - The `suggest_meals` and `plan_day` solver now works in half units of the food's serving: protein first, then a topper, then a staple tuned to ±5% kcal. Plans are saved.
+- **Context:** adds the top 20 usual foods with ids and grams, the 14-day cuisine mix, the usual oil level and 7-day nutrient gaps.
+- **UI:** cards for matches, swaps, breakdowns and plans, with "Log this", "Add to plan", "See breakdown" and "Swap". Streaming handles the regenerate reset.
+- **Verified live:** the `breakdown` action returns database values (idli, 1 piece of 40 g: 56 kcal, lab-verified).
+- **Coach eval: not run.**
+  - It has 55 cases: the original 25 plus 30 new ones covering regional names, swaps, tweaks, meal fitting, gaps, unknown foods and part-real names.
+  - It is blocked twice. Groq's 200,000-tokens-a-day budget for the text model was still exhausted at deploy time, and 30 of the cases need the `fitos_food_db` import (pesarattu, kambu, poori and similar).

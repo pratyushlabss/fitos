@@ -12,7 +12,7 @@ import { Sheet } from "@/components/ui/Sheet";
 import { EmptyState, ErrorState, SkeletonList } from "@/components/ui/States";
 import { useToast } from "@/components/ui/Toast";
 import { localDayKey } from "@/lib/data/base";
-import { type CoachCard, coachHistory, coachStream, confirmDraft } from "@/lib/data/nutrition";
+import { addToPlan, type CoachCard, coachHistory, coachStream, confirmDraft, type FoodBreakdown, foodBreakdown } from "@/lib/data/nutrition";
 import { defaultMealType } from "@/lib/logic/dashboard";
 import { macrosFor, sumMacros } from "@/lib/logic/nutrition";
 
@@ -39,7 +39,7 @@ export default function CoachPage() {
       coachStream(text, (event) =>
         setLocal((current) =>
           current.map((m) =>
-            m.pending ? (event.type === "tool" ? { ...m, chips: [...(m.chips ?? []), event.label] } : { ...m, content: m.content + event.text }) : m,
+            m.pending ? (event.type === "tool" ? { ...m, chips: [...(m.chips ?? []), event.label] } : event.type === "reset" ? { ...m, content: "" } : { ...m, content: m.content + event.text }) : m,
           ),
         ),
       ),
@@ -200,20 +200,31 @@ export default function CoachPage() {
   );
 }
 
-// Meal options, day plans and weekly reviews from the coach. Macros are exact; "Log this" saves the items as shown.
+// Coach cards: meal options, plans, swaps, matches and breakdowns. Numbers are from the database; "Log this" saves them as shown.
 function CoachCardView({ card, onLogged }: { card: CoachCard; onLogged: (message: string) => void }) {
   const [busy, setBusy] = useState<string | null>(null);
-  async function log(key: string, items: FoodDraft["items"], meal = defaultMealType()) {
+  const [breakdown, setBreakdown] = useState<FoodBreakdown | null>(null);
+  async function run(key: string, task: () => Promise<string>) {
     setBusy(key);
     try {
-      const result = await confirmDraft({ analysis_id: null, meal_type: meal, date: localDayKey(), source: "chat", items });
-      onLogged(`Logged ${result.logged} item${result.logged === 1 ? "" : "s"} to ${meal}`);
+      onLogged(await task());
     } catch (error) {
-      onLogged(error instanceof Error ? error.message : "Could not log that.");
+      onLogged(error instanceof Error ? error.message : "That didn't work.");
     } finally {
       setBusy(null);
     }
   }
+  const log = (key: string, items: FoodDraft["items"], meal = defaultMealType()) =>
+    run(key, async () => {
+      const result = await confirmDraft({ analysis_id: null, meal_type: meal, date: localDayKey(), source: "chat", items });
+      return `Logged ${result.logged} item${result.logged === 1 ? "" : "s"} to ${meal}`;
+    });
+  const plan = (key: string, title: string, items: FoodDraft["items"], meal = defaultMealType()) => run(key, async () => (await addToPlan(title, meal, items), "Added to your plan"));
+  const showBreakdown = (key: string, foodId: string) => run(key, async () => (setBreakdown(await foodBreakdown(foodId)), "Breakdown ready"));
+  const pill = "press min-h-[36px] rounded-full border border-line px-3 text-xs text-fg disabled:opacity-40";
+  const primary = "press min-h-[36px] rounded-full bg-max px-3 text-xs font-semibold text-bg disabled:opacity-40";
+  const totalsText = (t: { kcal: number; protein_g: number; carbs_g: number; fat_g: number }) => `${t.kcal} kcal · P${t.protein_g} C${t.carbs_g} F${t.fat_g}`;
+
   if (card.kind === "review") {
     return (
       <div className="mt-2 rounded-[14px] border border-line p-3 text-xs leading-5 text-fg/90">
@@ -222,28 +233,101 @@ function CoachCardView({ card, onLogged }: { card: CoachCard; onLogged: (message
       </div>
     );
   }
+  if (card.kind === "breakdown" || breakdown) {
+    const b = (breakdown ?? card.data) as FoodBreakdown;
+    const micros = Object.entries(b.nutrients.micros ?? {}).filter(([k]) => !["sugar_g", "sat_fat_g"].includes(k));
+    return (
+      <div className="mt-2 rounded-[14px] border border-line bg-bg p-3 text-xs text-fg">
+        <p className="text-sm font-semibold">{b.name}</p>
+        <p className="text-muted">
+          {b.portion} · {b.source ?? b.tier}
+          {b.check_values ? " · check values" : ""}
+        </p>
+        <p className="num mt-1">{totalsText(b.nutrients)} · fibre {b.nutrients.fibre_g} g{b.nutrients.sugar_g != null ? ` · sugar ${b.nutrients.sugar_g} g` : ""}{b.nutrients.sat_fat_g != null ? ` · sat fat ${b.nutrients.sat_fat_g} g` : ""}</p>
+        {micros.length ? <p className="num mt-1 text-muted">{micros.map(([k, v]) => `${k.replace(/_(mg|ug)$/, "")} ${v}${k.endsWith("_ug") ? " µg" : " mg"}`).join(" · ")}</p> : null}
+        {b.ingredients?.length ? <p className="mt-1 text-muted">{b.ingredients.map((i) => `${i.name} ${i.grams} g`).join(", ")}</p> : null}
+        {breakdown ? (
+          <button className={`${pill} mt-2`} onClick={() => setBreakdown(null)}>
+            Close
+          </button>
+        ) : null}
+      </div>
+    );
+  }
+  if (card.kind === "foods") {
+    const foods = (card.data ?? []) as Array<{ food_id: string; name: string; portion: string; per_portion: { kcal: number; protein_g: number; carbs_g: number; fat_g: number } }>;
+    return (
+      <div className="mt-2 space-y-2">
+        {foods.map((f) => (
+          <div key={f.food_id} className="rounded-[14px] border border-line bg-bg p-3">
+            <p className="text-sm font-semibold tracking-tight">{f.name}</p>
+            <p className="num text-[11px] text-muted">
+              {f.portion} · {totalsText(f.per_portion)}
+            </p>
+            <div className="mt-2 flex gap-2">
+              <button className={pill} disabled={busy !== null} onClick={() => void showBreakdown(f.food_id, f.food_id)}>
+                See breakdown
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (card.kind === "swaps") {
+    const d = card.data as { food: { name: string; portion: string; nutrients: { kcal: number } }; swaps: Array<{ food_id: string; name: string; portion: string; nutrients: { kcal: number; protein_g: number; carbs_g: number; fat_g: number }; delta: Record<string, number | null> }> };
+    return (
+      <div className="mt-2 space-y-2">
+        {d.swaps.map((s) => (
+          <div key={s.food_id} className="rounded-[14px] border border-line bg-bg p-3">
+            <p className="text-sm font-semibold tracking-tight">{s.name}</p>
+            <p className="num text-[11px] text-muted">
+              {s.portion} · {totalsText(s.nutrients)}
+            </p>
+            <p className="num text-[11px] text-fg/80">
+              vs {d.food.name}: {Object.entries(s.delta).filter(([, v]) => v !== null && v !== 0).map(([k, v]) => `${(v as number) > 0 ? "+" : ""}${v} ${k.replace(/_g$/, " g").replace(/_mg$/, " mg").replace("kcal", "kcal")}`).join(" · ")}
+            </p>
+            <div className="mt-2 flex gap-2">
+              <button className={primary} disabled={busy !== null} onClick={() => void showBreakdown(s.food_id, s.food_id)}>
+                Swap: see breakdown
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
   const rows =
     card.kind === "options"
-      ? (card.options ?? []).map((o, i) => ({ key: `o${i}`, title: o.title, sub: o.why, items: o.items, totals: o.totals, meal: undefined }))
-      : (card.plan?.meals ?? []).map((m) => ({ key: m.meal, title: m.meal, sub: m.items.map((i) => `${i.name} ${i.grams} g`).join(" · "), items: m.items, totals: m.totals, meal: m.meal }));
+      ? (card.options ?? []).map((o, i) => ({ key: `o${i}`, title: o.title, sub: o.why, items: o.items, totals: o.totals, meal: undefined as FoodDraft["meal_type"] | undefined }))
+      : (card.plan?.meals ?? []).map((m) => ({ key: m.meal, title: m.meal, sub: m.items.map((i) => `${i.unit === "g" ? `${i.grams} g` : `${i.quantity} ${i.unit}`} ${i.name}`).join(" · "), items: m.items, totals: m.totals, meal: m.meal }));
   return (
     <div className="mt-2 space-y-2">
       {card.kind === "plan" && card.plan ? (
         <p className="num text-[11px] text-muted">
-          Day: {card.plan.totals.kcal} kcal · P{card.plan.totals.protein_g} C{card.plan.totals.carbs_g} F{card.plan.totals.fat_g}
+          {card.days?.length ? `Week plan saved · day 1: ` : "Day: "}
+          {totalsText(card.plan.totals)}
         </p>
       ) : null}
       {rows.map((row) => (
         <div key={row.key} className="rounded-[14px] border border-line bg-bg p-3">
           <p className="text-sm font-semibold capitalize tracking-tight">{row.title}</p>
           <p className="mt-0.5 text-xs leading-5 text-muted">{row.sub}</p>
-          <div className="mt-2 flex items-center justify-between gap-2">
-            <span className="num text-[11px] text-fg/80">
-              {row.totals.kcal} kcal · P{row.totals.protein_g} C{row.totals.carbs_g} F{row.totals.fat_g}
-            </span>
-            <button className="press min-h-[36px] rounded-full bg-max px-3 text-xs font-semibold text-bg disabled:opacity-40" disabled={busy !== null || !row.items.length} onClick={() => void log(row.key, row.items, row.meal)}>
+          <p className="num mt-1 text-[11px] text-fg/80">{totalsText(row.totals)}</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button className={primary} disabled={busy !== null || !row.items.length} onClick={() => void log(row.key, row.items, row.meal ?? undefined)}>
               {busy === row.key ? "Logging…" : "Log this"}
             </button>
+            {card.kind === "options" ? (
+              <button className={pill} disabled={busy !== null} onClick={() => void plan(`${row.key}p`, row.title, row.items)}>
+                Add to plan
+              </button>
+            ) : null}
+            {row.items[0]?.food_id ? (
+              <button className={pill} disabled={busy !== null} onClick={() => void showBreakdown(`${row.key}b`, row.items[0].food_id!)}>
+                See breakdown
+              </button>
+            ) : null}
           </div>
         </div>
       ))}

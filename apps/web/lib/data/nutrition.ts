@@ -16,7 +16,7 @@ import { FunctionsFetchError, FunctionsHttpError, FunctionsRelayError } from "@s
 
 import { macrosFor, round1 } from "@/lib/logic/nutrition";
 
-import { currentUserId, num, numOrNull, type Row, supabase, unwrap } from "./base";
+import { currentUserId, localDayKey, num, numOrNull, type Row, supabase, unwrap } from "./base";
 import { uploadImage } from "./storage";
 import { functionsUrl, supabaseAnonKey } from "@/lib/supabase";
 
@@ -420,15 +420,40 @@ export async function coachHistory(limit = 40): Promise<CoachMessage[]> {
 }
 
 export type CoachOption = { title: string; why: string; items: DraftItem[]; totals: { kcal: number; protein_g: number; carbs_g: number; fat_g: number } };
+type CoachPlan = { meals: Array<{ meal: MealType; items: DraftItem[]; totals: CoachOption["totals"] }>; totals: CoachOption["totals"]; within?: { kcal: boolean; protein: boolean } };
 export type CoachCard = {
-  kind: "options" | "plan" | "review";
+  kind: "options" | "plan" | "review" | "swaps" | "breakdown" | "foods";
   title: string;
   options?: CoachOption[];
-  plan?: { meals: Array<{ meal: MealType; items: DraftItem[]; totals: CoachOption["totals"] }>; totals: CoachOption["totals"] };
+  plan?: CoachPlan;
+  plan_id?: string;
+  days?: Array<{ date: string; plan: CoachPlan }>;
   body?: string;
+  data?: unknown;
 };
+export type FoodBreakdown = {
+  status: string;
+  food_id: string;
+  name: string;
+  portion: string;
+  source: string | null;
+  tier: string | null;
+  nutrients: { kcal: number; protein_g: number; carbs_g: number; fat_g: number; fibre_g: number; sugar_g?: number | null; sat_fat_g?: number | null; micros?: Record<string, number> };
+  ingredients: Array<{ name: string; grams: number; kcal: number }>;
+  check_values?: boolean;
+};
+
+// Deterministic breakdown from database rows (no AI call).
+export function foodBreakdown(foodId: string, grams?: number): Promise<FoodBreakdown> {
+  return nutritionAi<FoodBreakdown>({ action: "breakdown", food_id: foodId, grams });
+}
+
+export async function addToPlan(title: string, meal: MealType, items: DraftItem[]): Promise<void> {
+  const userId = await currentUserId();
+  unwrap(await supabase.from("meal_plans").insert({ user_id: userId, kind: "custom", title, days: [{ date: localDayKey(), plan: { meals: [{ meal, items }] } }] }));
+}
 export type CoachResult = { reply: string; drafts: FoodDraft[]; cards?: CoachCard[]; tools_used?: string[]; logged?: number };
-export type CoachEvent = { type: "tool"; name: string; label: string } | { type: "delta"; text: string };
+export type CoachEvent = { type: "tool"; name: string; label: string } | { type: "delta"; text: string } | { type: "reset" };
 
 // Streams a coach turn (server-sent events): tool chips and text deltas while it works, then the full result.
 export async function coachStream(message: string, onEvent: (event: CoachEvent) => void): Promise<CoachResult> {

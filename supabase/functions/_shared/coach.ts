@@ -1,6 +1,8 @@
 import { chat, chatStream, type ChatMessage, type ToolDef } from "./ai.ts";
 import { COACH_PROMPT, TOOL_RULES } from "./coach_prompt.ts";
+import { collectFacts, stripNumbers, tagEstimates, untracedNumbers } from "./grounding.ts";
 import { embed, toVector } from "./embed.ts";
+import { type Change, compute, explainFood, foodBreakdown, isEstimate, lookupFood, nutrientGaps, suggestSwaps, type SwapGoal, tweakDish, usualPortion } from "./coach_tools.ts";
 import { analyzeText, confirmDraft, type Ctx, type Draft, type DraftItem, localDate, type MealType, macrosFor, type Per100, searchFoods } from "./pipeline.ts";
 
 const obj = (properties: Record<string, unknown>, required: string[] = []) => ({ type: "object", properties, required }) as ToolDef["parameters"];
@@ -20,6 +22,21 @@ export const TOOLS: ToolDef[] = [
   { name: "suggest_meals", description: "3 meal options with exact macros that fit what's left today, from the user's own foods first.", parameters: obj({ meal_type: MEAL, diet: DIET, cuisine: { type: "string" }, kcal: { type: "number", description: "optional kcal budget for this meal" }, protein_g: { type: "number", description: "optional protein to cover" } }) },
   { name: "plan_day", description: "A full day of meals hitting targets within ±5% kcal and ±10 g protein, using foods the user eats.", parameters: obj({ diet: DIET, kcal: { type: "number" }, protein_g: { type: "number" } }) },
   { name: "weekly_review", description: "This week's averages vs targets, adherence, protein days, weight change, training, one win, one focus.", parameters: obj({}) },
+  { name: "lookup_food", description: "Find a food: top 3 matches with tier, source and values for the user's usual portion. Use before quoting any food's numbers.", parameters: obj({ query: { type: "string" } }, ["query"]) },
+  { name: "explain_food", description: "What a food is (regional names understood), typical portion, macros per portion, source and tier.", parameters: obj({ query: { type: "string" } }, ["query"]) },
+  { name: "food_breakdown", description: "Full nutrients for a food_id at grams (default: usual portion), incl. fibre, sugar, sat fat, sodium, iron, calcium, potassium, vitamin C; recipe dishes list ingredients.", parameters: obj({ food_id: { type: "string" }, grams: { type: "number" } }, ["food_id"]) },
+  {
+    name: "tweak_dish",
+    description: "Recompute a recipe dish with changes from its ingredients, e.g. half the ghee, add 50 g paneer, brown rice instead of rice. Returns before/after.",
+    parameters: obj({
+      food_id: { type: "string" },
+      grams: { type: "number" },
+      changes: { type: "array", items: { type: "object", properties: { ingredient: { type: "string" }, action: { type: "string", enum: ["scale", "remove", "add", "replace"] }, factor: { type: "number" }, grams: { type: "number" }, with: { type: "string" } }, required: ["ingredient", "action"] } },
+    }, ["food_id", "changes"]),
+  },
+  { name: "suggest_swaps", description: "3 swaps from the database in the same category or cuisine that are better for a goal, with exact deltas.", parameters: obj({ food_id: { type: "string" }, goal: { type: "string", enum: ["more_protein", "less_fat", "more_fibre", "less_sodium", "fewer_kcal"] } }, ["food_id", "goal"]) },
+  { name: "nutrient_gaps", description: "Average fibre, protein, iron, calcium, sodium and sugar over 7 or 14 days against reference targets; top 2 gaps with foods that close them.", parameters: obj({ days: { type: "integer", enum: [7, 14] } }) },
+  { name: "plan_week", description: "Seven days of meals hitting targets, respecting veg days, dislikes and the user's usual foods. Saved for one-tap logging.", parameters: obj({ diet: DIET, kcal: { type: "number" }, protein_g: { type: "number" } }) },
   { name: "save_memory", description: "Store a lasting preference the user stated about themselves.", parameters: obj({ note: { type: "string" } }, ["note"]) },
 ];
 
@@ -34,6 +51,13 @@ export const TOOL_LABELS: Record<string, string> = {
   confirm_log: "logged it",
   suggest_meals: "picked meal options",
   plan_day: "planned a day",
+  plan_week: "planned a week",
+  lookup_food: "looked up the food",
+  explain_food: "looked up the food",
+  food_breakdown: "checked the breakdown",
+  tweak_dish: "recalculated the dish",
+  suggest_swaps: "found swaps",
+  nutrient_gaps: "checked nutrient gaps",
   weekly_review: "reviewed your week",
   save_memory: "saved a note",
 };
@@ -92,7 +116,7 @@ async function daySummary(ctx: Ctx, date: string) {
 
 // ---------- food pool for suggestions and plans: the user's foods first, then verified staples ----------
 
-type PoolFood = { food_id: string | null; name: string; per100: Per100; serving: number; uses: number; own: boolean };
+type PoolFood = { food_id: string | null; name: string; per100: Per100; unit: string; unitGrams: number; uses: number; own: boolean; tier: string | null };
 const MEAT = /\b(chicken|mutton|lamb|beef|pork|fish|prawn|shrimp|egg|tuna|salmon|bacon|ham|sausage|keema)\b/i;
 const STAPLE = /\b(rice|roti|chapati|phulka|paratha|bread|oats|poha|upma|idli|dosa|potato|quinoa|millet|banana|apple|pasta|noodle)\b/i;
 
@@ -107,108 +131,176 @@ function dislikes(notes: string[]): RegExp | null {
   return clean.length ? new RegExp(`\\b(${clean.join("|")})`, "i") : null;
 }
 
-function vegToday(notes: string[], timezone: string): boolean {
-  const day = new Intl.DateTimeFormat("en-US", { weekday: "long", timeZone: timezone }).format(new Date());
-  return notes.some((n) => /\bvegetarian|vegan|\bveg\b/i.test(n) && (!/\bon\s+\w+days?\b/i.test(n) || new RegExp(day, "i").test(n)));
+
+export function vegOnDay(notes: string[], weekday: string): boolean {
+  return notes.some((n) => /\bvegetarian|vegan|\bveg\b/i.test(n) && (!/\bon\s+\w+days?\b/i.test(n) || new RegExp(weekday, "i").test(n)));
 }
 
-async function foodPool(ctx: Ctx, diet: string, cuisine: string | null): Promise<PoolFood[]> {
+const LOGGABLE_UNITS = ["roti", "katori", "ladle", "piece", "plate", "cup", "tbsp", "serving"];
+const UNIT_RANK = ["piece", "roti", "katori", "plate", "cup", "glass", "ladle", "tbsp", "scoop", "serving"];
+
+// The user's frequent foods first, then recipe_calculated dishes, then lab_verified foods. Each carries a real unit.
+async function foodPool(ctx: Ctx, diet: string, cuisine: string | null, weekday?: string): Promise<PoolFood[]> {
   const since = new Date(Date.now() - 60 * 86400000).toISOString().slice(0, 10);
   const [mine, verified, notes, profile] = await Promise.all([
-    ctx.user.from("meal_items").select("name, food_id, amount_grams, calories, protein_g, carbs_g, fat_g, fibre_g, meals!inner(user_id, log_date)").eq("meals.user_id", ctx.userId!).gte("meals.log_date", since).gt("amount_grams", 0).limit(400),
-    ctx.user.from("foods").select("id, name, cuisine, food_nutrition(calories, protein_g, carbs_g, fat_g, fiber_g), food_servings(grams)").is("owner_id", null).eq("verified", true).limit(200),
+    ctx.user.from("meal_items").select("name, food_id, amount_grams, calories, protein_g, carbs_g, fat_g, fibre_g, meals!inner(user_id, log_date)").eq("meals.user_id", ctx.userId!).gte("meals.log_date", since).gt("amount_grams", 0).limit(500),
+    ctx.user.from("foods").select("id, name, cuisine, tier, food_nutrition(calories, protein_g, carbs_g, fat_g, fiber_g), food_servings(unit, grams)").is("owner_id", null).in("tier", ["recipe_calculated", "lab_verified"]).limit(600),
     memoryNotes(ctx),
     profileOf(ctx),
   ]);
-  const byName = new Map<string, PoolFood & { g: number; m: Per100 }>();
+  const byName = new Map<string, { food_id: string | null; name: string; uses: number; g: number; m: Per100 }>();
   for (const row of (mine.data ?? []) as Array<Record<string, unknown>>) {
     const key = String(row.name).toLowerCase();
     if (/^(oil|ghee|butter) for /.test(key)) continue;
-    const entry = byName.get(key) ?? { food_id: (row.food_id as string) ?? null, name: String(row.name), per100: { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0, fibre_g: 0 }, serving: 0, uses: 0, own: true, g: 0, m: { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0, fibre_g: 0 } };
-    entry.uses += 1;
-    entry.g += num(row.amount_grams);
-    entry.m = sum([entry.m, { kcal: num(row.calories), protein_g: num(row.protein_g), carbs_g: num(row.carbs_g), fat_g: num(row.fat_g), fibre_g: num(row.fibre_g) }]);
-    byName.set(key, entry);
+    const e = byName.get(key) ?? { food_id: (row.food_id as string) ?? null, name: String(row.name), uses: 0, g: 0, m: { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0, fibre_g: 0 } };
+    e.uses += 1;
+    e.g += num(row.amount_grams);
+    e.m = sum([e.m, { kcal: num(row.calories), protein_g: num(row.protein_g), carbs_g: num(row.carbs_g), fat_g: num(row.fat_g), fibre_g: num(row.fibre_g) }]);
+    byName.set(key, e);
   }
-  const pool: PoolFood[] = [...byName.values()].filter((e) => e.g > 0).map((e) => ({ food_id: e.food_id, name: e.name, per100: at(e.m, 10000 / e.g), serving: e.g / e.uses, uses: e.uses, own: true }));
-  for (const f of (verified.data ?? []) as Array<{ id: string; name: string; cuisine: string | null; food_nutrition: Array<Record<string, number>> | Record<string, number>; food_servings: Array<{ grams: number }> }>) {
+  const ownIds = [...byName.values()].map((e) => e.food_id).filter((x): x is string => Boolean(x));
+  const { data: ownServings } = ownIds.length ? await ctx.user.from("food_servings").select("food_id, unit, grams").in("food_id", ownIds) : { data: [] };
+  const unitFor = (servings: Array<{ unit: string; grams: number }>, fallback: number) => {
+    const s = servings.filter((x) => x.unit !== "g" && num(x.grams) > 0).sort((a, b) => UNIT_RANK.indexOf(a.unit) - UNIT_RANK.indexOf(b.unit))[0];
+    return s ? { unit: s.unit, unitGrams: num(s.grams) } : { unit: "serving", unitGrams: Math.max(20, Math.round(fallback)) };
+  };
+  const pool: PoolFood[] = [...byName.values()].filter((e) => e.g > 0).map((e) => ({
+    food_id: e.food_id,
+    name: e.name,
+    per100: at(e.m, 10000 / e.g),
+    ...unitFor(((ownServings ?? []) as Array<{ food_id: string; unit: string; grams: number }>).filter((x) => x.food_id === e.food_id), e.g / e.uses),
+    uses: e.uses,
+    own: true,
+    tier: "user",
+  }));
+  const rows = (verified.data ?? []) as Array<{ id: string; name: string; cuisine: string | null; tier: string; food_nutrition: Array<Record<string, number>> | Record<string, number>; food_servings: Array<{ unit: string; grams: number }> }>;
+  rows.sort((a, b) => (a.tier === b.tier ? 0 : a.tier === "recipe_calculated" ? -1 : 1));
+  for (const f of rows) {
     if (byName.has(f.name.toLowerCase())) continue;
     const n = Array.isArray(f.food_nutrition) ? f.food_nutrition[0] : f.food_nutrition;
-    if (!n) continue;
-    if (cuisine && f.cuisine && /indian/i.test(cuisine) !== /indian/i.test(f.cuisine) && !/western/i.test(f.cuisine)) continue;
-    pool.push({ food_id: f.id, name: f.name, per100: { kcal: num(n.calories), protein_g: num(n.protein_g), carbs_g: num(n.carbs_g), fat_g: num(n.fat_g), fibre_g: num(n.fiber_g) }, serving: num(f.food_servings?.[0]?.grams) || 100, uses: 0, own: false });
+    if (!n || !num(n.calories)) continue;
+    if (cuisine && f.cuisine && /indian/i.test(cuisine) !== /indian/i.test(f.cuisine) && !/western|other/i.test(f.cuisine)) continue;
+    pool.push({ food_id: f.id, name: f.name, per100: { kcal: num(n.calories), protein_g: num(n.protein_g), carbs_g: num(n.carbs_g), fat_g: num(n.fat_g), fibre_g: num(n.fiber_g) }, ...unitFor(f.food_servings ?? [], 100), uses: 0, own: false, tier: f.tier });
   }
-  const veg = diet === "veg" || (diet !== "nonveg" && vegToday(notes, profile?.timezone ?? "UTC"));
+  const day = weekday ?? new Intl.DateTimeFormat("en-US", { weekday: "long", timeZone: profile?.timezone ?? "UTC" }).format(new Date());
+  const veg = diet === "veg" || (diet !== "nonveg" && vegOnDay(notes, day));
   const avoid = dislikes(notes);
   return pool.filter((f) => f.per100.kcal > 0 && (!veg || !MEAT.test(f.name)) && (!avoid || !avoid.test(f.name)));
 }
 
 export type Option = { title: string; why: string; items: DraftItem[]; totals: ReturnType<typeof rounded> };
 
-function asItem(f: PoolFood, grams: number, key: string): DraftItem {
-  const g = Math.max(5, Math.round(grams / 5) * 5);
-  return { key, food_id: f.food_id, name: f.name, is_dish: false, cuisine: null, quantity: g, unit: "g", grams: g, per100: f.per100, source: f.own ? "user" : "verified", own: f.own, confidence: 0.9, match_score: 1, ingredients: [], servings: [] };
+const half = (x: number) => Math.round(x * 2) / 2;
+const isProtein = (f: { per100: Per100 }) => (f.per100.protein_g * 4) / Math.max(f.per100.kcal, 1) >= 0.22;
+const unitWord = (qty: number, unit: string) => (unit === "piece" || unit === "serving" ? "" : ` ${unit}${qty === 1 ? "" : "s"}`);
+
+function asItem(f: PoolFood, qty: number, key: string): DraftItem {
+  const grams = Math.round(qty * f.unitGrams * 10) / 10;
+  const loggable = LOGGABLE_UNITS.includes(f.unit);
+  return {
+    key, food_id: f.food_id, name: f.name, is_dish: false, cuisine: null,
+    quantity: loggable ? qty : grams, unit: (loggable ? f.unit : "g") as DraftItem["unit"], grams,
+    per100: f.per100, source: f.own ? "user" : "verified", own: f.own, confidence: 0.9, match_score: 1, ingredients: [],
+    servings: loggable ? [{ unit: f.unit as DraftItem["unit"], grams: f.unitGrams, label: null, specific: true }] : [], tier: f.tier,
+  } as DraftItem;
 }
+const itemText = (f: PoolFood, qty: number) => `${qty}${unitWord(qty, f.unit)} ${f.name.split(",")[0]}`;
 
 function optionTotals(items: DraftItem[]) {
   return rounded(sum(items.map((i) => at(i.per100, i.grams))));
 }
 
-// A protein source sized to the protein goal, then a staple to fill the kcal budget. Exact maths, no AI.
+// Portions solved in real units: protein first (main protein, then a topper), then a staple for kcal within ±5%.
 export function buildOptions(pool: PoolFood[], kcal: number, protein: number, count = 3, avoid: Set<string> = new Set()): Option[] {
-  const proteins = pool
-    .filter((f) => (f.per100.protein_g * 4) / Math.max(f.per100.kcal, 1) >= 0.22 && !avoid.has(f.name))
-    .sort((a, b) => Number(b.own) - Number(a.own) || b.uses - a.uses || b.per100.protein_g / b.per100.kcal - a.per100.protein_g / a.per100.kcal);
-  const staples = pool.filter((f) => STAPLE.test(f.name) && !avoid.has(f.name)).sort((a, b) => Number(b.own) - Number(a.own) || b.uses - a.uses);
+  const rank = (a: PoolFood, b: PoolFood) => Number(b.own) - Number(a.own) || b.uses - a.uses || Number(b.tier === "recipe_calculated") - Number(a.tier === "recipe_calculated");
+  const proteins = pool.filter((f) => isProtein(f) && !avoid.has(f.name)).sort((a, b) => rank(a, b) || b.per100.protein_g / b.per100.kcal - a.per100.protein_g / a.per100.kcal);
+  const staples = pool.filter((f) => STAPLE.test(f.name) && !isProtein(f) && !avoid.has(f.name)).sort(rank);
+  const perUnit = (f: PoolFood) => at(f.per100, f.unitGrams);
   const options: Option[] = [];
   for (const p of proteins) {
     if (options.length >= count) break;
-    const gP = Math.min(Math.max((protein * 0.8 * 100) / Math.max(p.per100.protein_g, 1), p.serving * 0.5), p.serving * 3, (kcal * 0.85 * 100) / Math.max(p.per100.kcal, 1));
-    const items = [asItem(p, gP, `o${options.length}a`)];
-    const left = kcal - at(p.per100, items[0].grams).kcal;
-    const s = staples.find((x) => x.name !== p.name && !options.some((o) => o.items[1]?.name === x.name)) ?? staples.find((x) => x.name !== p.name);
-    if (s && left > 80) items.push(asItem(s, Math.min((left * 100) / Math.max(s.per100.kcal, 1), s.serving * 3), `o${options.length}b`));
+    const parts: Array<{ f: PoolFood; qty: number }> = [];
+    const qP = Math.min(4, Math.max(0.5, half((protein * 0.7) / Math.max(perUnit(p).protein_g, 0.5))), Math.max(0.5, half((kcal * 0.7) / Math.max(perUnit(p).kcal, 1))));
+    parts.push({ f: p, qty: qP });
+    const s = staples.find((x) => !options.some((o) => o.items.some((i) => i.name === x.name))) ?? staples[0];
+    const kcalOf = () => parts.reduce((t, x) => t + perUnit(x.f).kcal * x.qty, 0);
+    const proteinOf = () => parts.reduce((t, x) => t + perUnit(x.f).protein_g * x.qty, 0);
+    if (s && kcal - kcalOf() > 60) parts.push({ f: s, qty: Math.min(4, Math.max(0.5, half((kcal - kcalOf()) / Math.max(perUnit(s).kcal, 1)))) });
+    const gap = protein - proteinOf();
+    const topper = proteins.find((x) => x.name !== p.name && perUnit(x).kcal <= 200 && !avoid.has(x.name));
+    if (topper && gap > 6) parts.push({ f: topper, qty: Math.min(3, Math.max(0.5, half(gap / Math.max(perUnit(topper).protein_g, 0.5)))) });
+    // Fine-tune the staple in half units toward kcal within 5%.
+    const staple = parts.find((x) => x.f === s);
+    for (let i = 0; i < 8 && staple && Math.abs(kcalOf() - kcal) / kcal > 0.05; i += 1) {
+      const step = kcalOf() > kcal ? -0.5 : 0.5;
+      if (staple.qty + step < 0.5 || staple.qty + step > 5) break;
+      staple.qty += step;
+    }
+    const items = parts.map((x, i) => asItem(x.f, x.qty, `o${options.length}${i}`));
     const totals = optionTotals(items);
-    options.push({ title: items.map((i) => i.name).join(" + "), why: `${p.own ? `You eat ${p.name} often` : `${p.name} is protein-dense`}; ${Math.round(totals.protein_g)} g protein for ${totals.kcal} kcal.`, items, totals });
+    options.push({
+      title: parts.map((x) => itemText(x.f, x.qty)).join(" + "),
+      why: `${p.own ? `You eat ${p.name.split(",")[0]} often` : `${p.name.split(",")[0]} is protein-dense`}; ${totals.protein_g} g protein, ${totals.kcal} kcal.`,
+      items,
+      totals,
+    });
   }
   return options;
 }
 
 const MEAL_SHARE: Record<MealType, number> = { breakfast: 0.25, lunch: 0.35, dinner: 0.3, snacks: 0.1 };
 
-export function planDay(pool: PoolFood[], kcal: number, protein: number) {
-  const used = new Set<string>();
+export function planDay(pool: PoolFood[], kcal: number, protein: number, used: Set<string> = new Set()) {
   const meals = (Object.keys(MEAL_SHARE) as MealType[]).map((meal) => {
     const option = buildOptions(pool, kcal * MEAL_SHARE[meal], protein * MEAL_SHARE[meal], 1, used)[0];
     option?.items.forEach((i) => used.add(i.name));
     return { meal, items: option?.items ?? [] };
   });
-  // Scale portions until kcal is within 5% and protein within 10 g.
-  for (let round = 0; round < 10; round += 1) {
-    const all = meals.flatMap((m) => m.items);
-    if (!all.length) break;
-    const proteinItems = all.filter((i) => (i.per100.protein_g * 4) / Math.max(i.per100.kcal, 1) >= 0.22);
-    const t = sum(all.map((i) => at(i.per100, i.grams)));
-    if (Math.abs(t.protein_g - protein) > 8 && proteinItems.length) {
-      const pp = sum(proteinItems.map((i) => at(i.per100, i.grams))).protein_g;
-      const k = Math.min(1.6, Math.max(0.6, 1 + (protein - t.protein_g) / Math.max(pp, 1)));
-      proteinItems.forEach((i) => (i.grams = i.quantity = Math.max(5, Math.round((i.grams * k) / 5) * 5)));
+  // Whole-day tuning in half units: protein within 10 g, then kcal within 5%.
+  const all = () => meals.flatMap((m) => m.items);
+  const total = () => sum(all().map((i) => at(i.per100, i.grams)));
+  const bump = (item: DraftItem, step: number) => {
+    const unitGrams = item.unit === "g" ? 0 : item.grams / Math.max(item.quantity, 0.5);
+    if (unitGrams) {
+      const q = item.quantity + step;
+      if (q < 0.5 || q > 5) return false;
+      item.quantity = q;
+      item.grams = Math.round(q * unitGrams * 10) / 10;
+    } else {
+      const g = item.grams + step * 50;
+      if (g < 20) return false;
+      item.grams = item.quantity = g;
     }
-    const t2 = sum(all.map((i) => at(i.per100, i.grams)));
-    const others = all.filter((i) => !proteinItems.includes(i));
-    if (Math.abs(t2.kcal - kcal) / kcal > 0.04 && others.length) {
-      const otherKcal = sum(others.map((i) => at(i.per100, i.grams))).kcal;
-      const k = Math.min(2, Math.max(0.3, 1 + (kcal - t2.kcal) / Math.max(otherKcal, 1)));
-      others.forEach((i) => (i.grams = i.quantity = Math.max(5, Math.round((i.grams * k) / 5) * 5)));
+    return true;
+  };
+  for (let i = 0; i < 24; i += 1) {
+    const t = total();
+    if (Math.abs(t.protein_g - protein) > 10) {
+      const p = all().filter((x) => isProtein(x)).sort((a, b) => b.per100.protein_g - a.per100.protein_g)[0];
+      if (p && bump(p, t.protein_g < protein ? 0.5 : -0.5)) continue;
     }
+    if (Math.abs(t.kcal - kcal) / kcal > 0.05) {
+      const s = all().filter((x) => !isProtein(x)).sort((a, b) => at(b.per100, b.grams).kcal - at(a.per100, a.grams).kcal)[0];
+      if (s && bump(s, t.kcal < kcal ? 0.5 : -0.5)) continue;
+    }
+    break;
   }
-  const totals = optionTotals(meals.flatMap((m) => m.items));
+  const totals = optionTotals(all());
   return { meals: meals.map((m) => ({ ...m, totals: optionTotals(m.items) })), totals, within: { kcal: Math.abs(totals.kcal - kcal) / kcal <= 0.05, protein: Math.abs(totals.protein_g - protein) <= 10 } };
 }
 
 // ---------- tools ----------
 
-export type Card = { kind: "options" | "plan" | "review"; title: string; options?: Option[]; plan?: ReturnType<typeof planDay>; body?: string };
+export type Card = {
+  kind: "options" | "plan" | "review" | "swaps" | "breakdown" | "foods";
+  title: string;
+  options?: Option[];
+  plan?: ReturnType<typeof planDay>;
+  plan_id?: string;
+  days?: Array<{ date: string; plan: ReturnType<typeof planDay> }>;
+  body?: string;
+  data?: unknown;
+};
 type ToolOutput = { result: unknown; draft?: Draft; card?: Card };
 
 function defaultMeal(timezone: string): MealType {
@@ -279,17 +371,58 @@ async function runTool(ctx: Ctx, name: string, args: Record<string, unknown>, to
       const kcal = num(args.kcal) || Math.max(200, Math.min(summary.remaining.kcal, summary.targets.kcal * MEAL_SHARE[meal] * 1.3));
       const protein = num(args.protein_g) || Math.max(10, Math.min(summary.remaining.protein_g, 50));
       const options = buildOptions(await foodPool(ctx, String(args.diet ?? "any"), (args.cuisine as string) ?? null), kcal, protein);
-      return { result: { meal_type: meal, budget: { kcal: Math.round(kcal), protein_g: Math.round(protein) }, options: options.map((o) => ({ title: o.title, why: o.why, items: o.items.map((i) => `${i.name} ${i.grams}g`), totals: o.totals })) }, card: { kind: "options", title: `Options for ${meal}`, options } };
+      return { result: { meal_type: meal, budget: { kcal: Math.round(kcal), protein_g: Math.round(protein) }, options: options.map((o) => ({ title: o.title + (o.items.some((i) => isEstimate(i.tier)) ? " (estimate)" : ""), why: o.why, items: o.items.map((i) => `${i.name} ${i.grams}g`), totals: o.totals })) }, card: { kind: "options", title: `Options for ${meal}`, options } };
     }
     case "plan_day": {
       const t = await targets(ctx, today);
       const kcal = num(args.kcal) || t.kcal;
       const protein = num(args.protein_g) || t.protein_g;
       const plan = planDay(await foodPool(ctx, String(args.diet ?? "any"), null), kcal, protein);
+      const { data: saved } = await user.from("meal_plans").insert({ user_id: uid, kind: "day", title: "Day plan", days: [{ date: today, plan }] }).select("id").single();
       return {
         result: { target: { kcal, protein_g: protein }, totals: plan.totals, within_targets: plan.within, meals: plan.meals.map((m) => ({ meal: m.meal, items: m.items.map((i) => `${i.name} ${i.grams}g`), totals: m.totals })) },
-        card: { kind: "plan", title: "Day plan", plan },
+        card: { kind: "plan", title: "Day plan", plan, plan_id: saved?.id },
       };
+    }
+    case "plan_week": {
+      const t = await targets(ctx, today);
+      const kcal = num(args.kcal) || t.kcal;
+      const protein = num(args.protein_g) || t.protein_g;
+      const days: Array<{ date: string; plan: ReturnType<typeof planDay> }> = [];
+      const recent = new Set<string>();
+      for (let d = 1; d <= 7; d += 1) {
+        const date = new Date(Date.parse(today) + d * 86400000);
+        const weekday = new Intl.DateTimeFormat("en-US", { weekday: "long", timeZone: "UTC" }).format(date);
+        const plan = planDay(await foodPool(ctx, String(args.diet ?? "any"), null, weekday), kcal, protein, new Set(recent));
+        plan.meals.flatMap((m) => m.items).forEach((i) => recent.add(i.name));
+        if (recent.size > 12) recent.clear();
+        days.push({ date: date.toISOString().slice(0, 10), plan });
+      }
+      const { data: saved } = await user.from("meal_plans").insert({ user_id: uid, kind: "week", title: "Week plan", days }).select("id").single();
+      return {
+        result: { target: { kcal, protein_g: protein }, days: days.map((d) => ({ date: d.date, totals: d.plan.totals, within_targets: d.plan.within, meals: d.plan.meals.map((m) => `${m.meal}: ${m.items.map((i) => i.name).join(", ")}`) })) },
+        card: { kind: "plan", title: "Week plan", plan: days[0].plan, days, plan_id: saved?.id },
+      };
+    }
+    case "lookup_food": {
+      const out = await lookupFood(ctx, String(args.query ?? ""));
+      return { result: out, card: out.status === "ok" ? { kind: "foods", title: "Matches", data: out.foods } : undefined };
+    }
+    case "explain_food":
+      return { result: await explainFood(ctx, String(args.query ?? "")) };
+    case "food_breakdown": {
+      const out = await foodBreakdown(ctx, String(args.food_id ?? ""), num(args.grams) || null);
+      return { result: out, card: out.status === "ok" ? { kind: "breakdown", title: String(out.name), data: out } : undefined };
+    }
+    case "tweak_dish":
+      return { result: await tweakDish(ctx, String(args.food_id ?? ""), (args.changes ?? []) as Change[], num(args.grams) || null) };
+    case "suggest_swaps": {
+      const out = await suggestSwaps(ctx, String(args.food_id ?? ""), (String(args.goal ?? "more_protein") as SwapGoal));
+      return { result: out, card: out.status === "ok" ? { kind: "swaps", title: `Swaps for ${out.food?.name}`, data: out } : undefined };
+    }
+    case "nutrient_gaps": {
+      const p = await profileOf(ctx);
+      return { result: await nutrientGaps(ctx, num(args.days) === 14 ? 14 : 7, p.protein_target_g, p.sex) };
     }
     case "weekly_review": {
       const { data } = await user.rpc("my_weekly_review");
@@ -339,14 +472,46 @@ async function contextBlock(ctx: Ctx, message: string, today: string): Promise<s
   if (notes.length) lines.push(`About the user: ${notes.join("; ")}.`);
   const favs = ((favourites.data ?? []) as Array<{ name: string }>).map((f) => f.name);
   if (favs.length) lines.push(`Favourite meals: ${favs.join(", ")}.`);
+  // Usual foods (ids for tools), cuisine mix, oil habits and the latest nutrient gaps. Details come from tools.
+  const since60 = new Date(Date.now() - 60 * 86400000).toISOString().slice(0, 10);
+  const since14 = new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10);
+  const [usual, mix] = await Promise.all([
+    ctx.user.from("meal_items").select("name, food_id, amount_grams, oil_level, meals!inner(user_id, log_date)").eq("meals.user_id", uid).gte("meals.log_date", since60).not("food_id", "is", null).limit(600),
+    ctx.user.from("meal_items").select("calories, foods(cuisine), meals!inner(user_id, log_date)").eq("meals.user_id", uid).gte("meals.log_date", since14).limit(600),
+  ]);
+  const freq = new Map<string, { name: string; id: string; n: number; g: number }>();
+  const oilCount: Record<string, number> = {};
+  for (const r of (usual.data ?? []) as Array<{ name: string; food_id: string; amount_grams: number; oil_level: string | null }>) {
+    if (/^(oil|ghee|butter) for /i.test(r.name)) {
+      if (r.oil_level) oilCount[r.oil_level] = (oilCount[r.oil_level] ?? 0) + 1;
+      continue;
+    }
+    const e = freq.get(r.food_id) ?? { name: r.name, id: r.food_id, n: 0, g: 0 };
+    e.n += 1;
+    e.g += num(r.amount_grams);
+    freq.set(r.food_id, e);
+  }
+  const top = [...freq.values()].sort((a, b) => b.n - a.n).slice(0, 20);
+  if (top.length) lines.push(`Usual foods (food_id: name, usual g, times): ${top.map((f) => `${f.id}: ${f.name.split(",")[0]} ${Math.round(f.g / f.n)}g ×${f.n}`).join("; ")}.`);
+  const cuisines: Record<string, number> = {};
+  let kcalAll = 0;
+  for (const r of (mix.data ?? []) as unknown as Array<{ calories: number; foods: { cuisine: string | null } | null }>) {
+    const c = r.foods?.cuisine ?? "other";
+    cuisines[c] = (cuisines[c] ?? 0) + num(r.calories);
+    kcalAll += num(r.calories);
+  }
+  if (kcalAll > 0) lines.push(`Cuisine mix (14 days, by kcal): ${Object.entries(cuisines).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([c, k]) => `${c.replace("_", " ")} ${Math.round((k / kcalAll) * 100)}%`).join(", ")}.`);
+  if (Object.keys(oilCount).length) lines.push(`Oil level usually: ${Object.entries(oilCount).sort((a, b) => b[1] - a[1])[0][0]}.`);
+  const gapInfo = await nutrientGaps(ctx, 7, p.protein_target_g, p.sex).catch(() => null);
+  if (gapInfo && "gaps" in gapInfo && gapInfo.gaps?.length) lines.push(`Nutrient gaps (7 days): ${gapInfo.gaps.map((g) => `${g.nutrient} avg ${g.average} vs ${"target" in g ? `${g.target}` : `<${(g as { limit: number }).limit}`}`).join("; ")}.`);
   if (foods.length) lines.push(`Foods matching the message: ${foods.map((f) => `${f.name} ${Math.round(num(f.kcal))}kcal/100g`).join(", ")}.`);
   return lines.join("\n");
 }
 
 // ---------- the loop ----------
 
-export type CoachEvent = { type: "tool"; name: string; label: string } | { type: "delta"; text: string };
-export type CoachResult = { reply: string; drafts: Draft[]; cards: Card[]; tools_used: string[]; logged: number };
+export type CoachEvent = { type: "tool"; name: string; label: string } | { type: "delta"; text: string } | { type: "reset" };
+export type CoachResult = { reply: string; drafts: Draft[]; cards: Card[]; tools_used: string[]; logged: number; facts: number[] };
 
 export async function coachReply(ctx: Ctx, message: string, onEvent?: (event: CoachEvent) => void): Promise<CoachResult> {
   const uid = ctx.userId!;
@@ -360,34 +525,56 @@ export async function coachReply(ctx: Ctx, message: string, onEvent?: (event: Co
   const drafts: Draft[] = [];
   const cards: Card[] = [];
   const toolsUsed: string[] = [];
+  const facts: number[] = [];
+  const estimates = new Set<string>();
   let logged = 0;
-  let reply = "";
-  for (let round = 0; round < 5; round += 1) {
-    const result = onEvent ? await chatStream(system, messages, TOOLS, ctx.guard, (delta) => onEvent({ type: "delta", text: delta })) : await chat(system, messages, TOOLS, ctx.guard);
-    if (!result.toolCalls.length) {
-      reply = result.text;
-      break;
-    }
-    messages.push({ role: "assistant", content: result.text, toolCalls: result.toolCalls, raw: result.raw });
-    for (const call of result.toolCalls) {
-      toolsUsed.push(call.name);
-      onEvent?.({ type: "tool", name: call.name, label: TOOL_LABELS[call.name] ?? call.name });
-      let output: ToolOutput;
-      try {
-        output = await runTool(ctx, call.name, call.args, today);
-      } catch (error) {
-        output = { result: { error: error instanceof Error ? error.message : "Tool failed" } };
+
+  const runLoop = async (rounds: number): Promise<string> => {
+    for (let round = 0; round < rounds; round += 1) {
+      const result = onEvent ? await chatStream(system, messages, TOOLS, ctx.guard, (delta) => onEvent({ type: "delta", text: delta })) : await chat(system, messages, TOOLS, ctx.guard);
+      if (!result.toolCalls.length) return result.text;
+      messages.push({ role: "assistant", content: result.text, toolCalls: result.toolCalls, raw: result.raw });
+      for (const call of result.toolCalls) {
+        toolsUsed.push(call.name);
+        onEvent?.({ type: "tool", name: call.name, label: TOOL_LABELS[call.name] ?? call.name });
+        let output: ToolOutput;
+        try {
+          output = await runTool(ctx, call.name, call.args, today);
+        } catch (error) {
+          output = { result: { error: error instanceof Error ? error.message : "Tool failed" } };
+        }
+        collectFacts(output.result, facts, estimates);
+        if (output.draft) drafts.push(output.draft);
+        if (output.card) cards.push(output.card);
+        if (call.name === "confirm_log") logged += num((output.result as { saved?: number }).saved);
+        messages.push({ role: "tool", toolCallId: call.id, name: call.name, content: JSON.stringify(output.result).slice(0, 2500) });
       }
-      if (output.draft) drafts.push(output.draft);
-      if (output.card) cards.push(output.card);
-      if (call.name === "confirm_log") logged += num((output.result as { saved?: number }).saved);
-      messages.push({ role: "tool", toolCallId: call.id, name: call.name, content: JSON.stringify(output.result).slice(0, 2500) });
+    }
+    return "";
+  };
+
+  let reply = await runLoop(5);
+  // Grounding: numbers next to nutrition units must come from this turn's tool results.
+  let untraced = untracedNumbers(reply, facts, text);
+  if (untraced.length) {
+    await ctx.user.from("coach_grounding_log").insert({ user_id: uid, message: text, reply, untraced, action: "regenerated" });
+    console.warn("coach grounding: regenerating", untraced);
+    onEvent?.({ type: "reset" });
+    messages.push({ role: "assistant", content: reply });
+    messages.push({ role: "user", content: "Check: use tools for every number. Only quote numbers that came from tool results in this turn, then rewrite your answer." });
+    reply = await runLoop(3);
+    untraced = untracedNumbers(reply, facts, text);
+    if (untraced.length) {
+      await ctx.user.from("coach_grounding_log").insert({ user_id: uid, message: text, reply, untraced, action: "stripped" });
+      console.warn("coach grounding: stripped", untraced);
+      reply = stripNumbers(reply, untraced);
     }
   }
+  reply = tagEstimates(reply, estimates);
   if (!reply) reply = drafts.length ? "Here's the draft. Log this?" : "Sorry, I couldn't finish that. Try asking again.";
   await ctx.user.from("coach_messages").insert([
     { user_id: uid, role: "user", content: text },
     { user_id: uid, role: "assistant", content: reply, tool_calls: toolsUsed.length ? toolsUsed : null },
   ]);
-  return { reply, drafts, cards, tools_used: toolsUsed, logged };
+  return { reply, drafts, cards, tools_used: toolsUsed, logged, facts: [...new Set(facts.map((f) => Math.round(f * 100) / 100))].slice(0, 300) };
 }
