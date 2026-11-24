@@ -299,3 +299,10 @@ Visual layer only. No data logic, Supabase calls, edge functions or routes chang
 - `lib/theme.ts`: per-device theme, dither and 3D preferences, applied before paint by an inline script.
 - Static SVG grain overlay at 5% with overlay blend; a shared 1-bit dither filter.
 - Primitives: Button (pill, 44px), shimmer skeletons, Sheet (spring in, drag down to dismiss), MacroRing and MacroBar with pattern fills (protein solid, carbs hatch, fat dots), AnimatedNumber count-up, 200ms page transition, global haptic on press, monochrome nav, header, toast, fields and segmented control.
+
+## Food AI fix: Phase 1, diagnosis (2026-11-24)
+
+- `DIAGNOSIS.md` lists 11 findings with root causes and files. The main ones are a CORS allowlist that blocks every AI call outside two exact origins, an embedding-heavy pipeline that hits the Edge Function CPU limit, unchecked AI calorie values that are saved globally, and visible fat counted twice in photos.
+- Groq models on the key: `qwen/qwen3.8-27b` (the only vision model), `openai/gpt-oss-120b`, `openai/gpt-oss-20b`. **There is no Llama chat model**, so the text role will use `openai/gpt-oss-120b`.
+- Local `functions serve` needs Docker, which is not installed, and the Management API logs endpoint changed. Deployed functions were probed directly instead.
+- Playwright walked the main flows against the live backend as a throwaway user. Every non-AI flow passed.
